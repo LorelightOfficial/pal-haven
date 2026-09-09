@@ -211,8 +211,9 @@
             <h2>Make yourself at home.</h2>
             <div>
               <p>
-                <strong>On mobile</strong><br />Left joystick moves. Drag the
-                scene to look. Sprint lock keeps running enabled. Use Attack,
+                <strong>On mobile</strong><br />Left joystick moves, and
+                auto-run is always on. Push the stick out to the ring to lock a
+                sprint until you let go. Drag the scene to look. Use Attack,
                 Pick, Pet and Inspect on the right.
               </p>
               <p>
@@ -225,11 +226,11 @@
           <div class="callout">
             <span data-icon="shield"></span>
             <div>
-              <strong>A peaceful world by default.</strong>
+              <strong>They defend themselves.</strong>
               <p>
-                Retaliation requires both World → Allow retaliation and the
-                creature's own retaliation setting. Pals don't attack first. One
-                mapped attack per creature is used for combat.
+                Pals fight back from the very first hit, but they never attack
+                first. You can calm a single pal, or the whole world, in World
+                settings. One mapped attack per creature is used for combat.
               </p>
             </div>
           </div>
@@ -308,7 +309,9 @@
         <div class="game-top-actions">
           <button id="manage-pals" class="hud-button">
             <span data-icon="paw"></span><span class="hud-label">Pals</span
-            ><b id="hud-pal-count">0</b></button
+            ><b
+              ><span id="hud-pal-count">0</span><i id="hud-pal-cap">/24</i></b
+            ></button
           ><button id="world-settings" class="hud-button">
             <span data-icon="sliders"></span
             ><span class="hud-label">World</span></button
@@ -321,10 +324,23 @@
           </button>
         </div>
       </div>
+      <div id="minimap-panel" class="minimap-panel">
+        <canvas
+          id="minimap"
+          width="188"
+          height="188"
+          aria-label="World map"
+        ></canvas>
+        <span class="minimap-tag">MAP</span>
+      </div>
+      <div id="game-banner" class="game-banner" role="status" hidden>
+        <strong id="banner-title"></strong><small id="banner-note"></small>
+      </div>
       <div id="performance" class="performance" hidden></div>
       <div id="crosshair" class="crosshair" aria-hidden="true"><i></i></div>
-      <div id="target-badge" class="target-badge" hidden>
+      <div id="target-badge" class="target-badge" data-state="calm" hidden>
         <strong id="target-name"></strong><span id="target-health"></span>
+        <div class="target-hp"><i id="target-hp-fill"></i></div>
       </div>
       <div
         id="interaction-effect"
@@ -336,13 +352,15 @@
         class="damage-vignette"
         aria-hidden="true"
       ></div>
+      <div id="damage-layer" class="damage-layer" aria-hidden="true"></div>
       <div id="game-controls" class="game-controls">
         <div class="move-controls">
-          <button id="sprint-lock" class="sprint-button" aria-pressed="false">
-            <span data-icon="run"></span> Sprint lock
+          <button id="sprint-lock" class="sprint-button" aria-pressed="true">
+            <span data-icon="run"></span> Auto-run
             <span class="sprint-dot"></span>
           </button>
           <div id="joystick" class="joystick" aria-label="Movement joystick">
+            <span class="joystick-ring" aria-hidden="true"></span>
             <span class="joystick-guide">MOVE</span>
             <div id="joystick-knob" class="joystick-knob"></div>
           </div>

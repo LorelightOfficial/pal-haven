@@ -1,6 +1,6 @@
 /* Pal Haven's offline WebGL2 renderer. No CDN or engine runtime dependency.
  * Adapted in part from the mesh-rendering approach in the supplied Buddy3D viewer.
- * 48-joint GPU skins, per-instance morphs, base/normal textures, fog, contact shadows.
+ * Adaptive GPU skinning (48-128 joints by device), per-instance morphs, base/normal textures, fog, contact shadows.
  * Deliberately not a complete glTF/PBR renderer; see docs/SUPPORTED-FORMATS.md.
  */
 import {
@@ -11,11 +11,12 @@ import {
   lookAt,
   clamp,
 } from "./math.js";
-export const MAX_JOINTS = 48;
-const VERTEX = `#version 300 es
+// Live binding: raised at construction to whatever the GPU can actually link.
+export let MAX_JOINTS = 48;
+const vertexSource = (jointCount = MAX_JOINTS) => `#version 300 es
 precision highp float;
 in vec3 position; in vec3 normal; in vec2 uv; in vec4 joints; in vec4 weights; in vec3 vertexColor;
-uniform mat4 model, vp; uniform mat3 normalMat; uniform mat4 bones[48]; uniform bool skinned;
+uniform mat4 model, vp; uniform mat3 normalMat; uniform mat4 bones[${jointCount}]; uniform bool skinned;
 out vec3 vNormal,vWorld,vLocal,vColor; out vec2 vUV;
 void main(){ vec4 p=vec4(position,1.); vec3 n=normal;
  if(skinned){mat4 s=bones[int(joints.x)]*weights.x+bones[int(joints.y)]*weights.y+bones[int(joints.z)]*weights.z+bones[int(joints.w)]*weights.w;p=s*p;n=mat3(s)*n;}
@@ -49,8 +50,11 @@ export class Renderer {
     this.gl = canvas.getContext("webgl2", {
       alpha: false,
       antialias: true,
-      preserveDrawingBuffer: true,
-      powerPreference: "low-power",
+      // Keeping the drawing buffer alive forced an extra full-screen copy every frame.
+      preserveDrawingBuffer: false,
+      powerPreference: "high-performance",
+      desynchronized: true,
+      failIfMajorPerformanceCaveat: false,
     });
     if (!this.gl)
       throw new Error(
@@ -60,6 +64,10 @@ export class Renderer {
     this.geometries = new Map();
     this.textures = new Map();
     this.pixelRatio = 1;
+    this.rect = null;
+    this.rectTime = -1e9;
+    for (const type of ["resize", "orientationchange"])
+      window.addEventListener(type, () => this.measure(true));
     this.stats = { draws: 0, triangles: 0 };
     const compile = (type, source) => {
       const s = gl.createShader(type);
@@ -69,16 +77,41 @@ export class Renderer {
         throw Error(gl.getShaderInfoLog(s));
       return s;
     };
-    this.program = gl.createProgram();
-    const vs = compile(gl.VERTEX_SHADER, VERTEX),
-      fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
-    gl.attachShader(this.program, vs);
-    gl.attachShader(this.program, fs);
-    gl.linkProgram(this.program);
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    if (!gl.getProgramParameter(this.program, gl.LINK_STATUS))
-      throw Error(gl.getProgramInfoLog(this.program));
+    // Ask the GPU how many bone matrices it can hold, then link the largest shader it accepts.
+    const vectors = gl.getParameter(gl.MAX_VERTEX_UNIFORM_VECTORS) || 256,
+      candidates = [
+        ...new Set([
+          Math.max(48, Math.min(128, Math.floor((vectors - 40) / 4))),
+          96,
+          64,
+          48,
+        ]),
+      ].sort((a, b) => b - a);
+    let linked = null,
+      lastError = "";
+    for (const count of candidates) {
+      const program = gl.createProgram();
+      try {
+        const vs = compile(gl.VERTEX_SHADER, vertexSource(count)),
+          fs = compile(gl.FRAGMENT_SHADER, FRAGMENT);
+        gl.attachShader(program, vs);
+        gl.attachShader(program, fs);
+        gl.linkProgram(program);
+        gl.deleteShader(vs);
+        gl.deleteShader(fs);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+          throw Error(gl.getProgramInfoLog(program) || "Shader link failed.");
+        linked = { program, count };
+        break;
+      } catch (error) {
+        lastError = error?.message || String(error);
+        gl.deleteProgram(program);
+      }
+    }
+    if (!linked) throw Error(lastError || "Shader program could not be built.");
+    this.program = linked.program;
+    MAX_JOINTS = linked.count;
+    this.maxJoints = linked.count;
     this.u = {};
     for (const k of [
       "model",
@@ -128,9 +161,20 @@ export class Renderer {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
+  /* Cached layout read. getBoundingClientRect() on every frame forced a synchronous
+   * reflow and was one of the main stutters on phones. */
+  measure(force = false) {
+    const now = performance.now();
+    if (force || !this.rect || !this.rect.width || now - this.rectTime > 500) {
+      const r = this.canvas.getBoundingClientRect();
+      this.rect = { width: r.width, height: r.height };
+      this.rectTime = now;
+    }
+    return this.rect;
+  }
   resize(ratio = this.pixelRatio) {
     this.pixelRatio = ratio;
-    const r = this.canvas.getBoundingClientRect(),
+    const r = this.measure(),
       w = Math.max(1, Math.round(r.width * ratio)),
       h = Math.max(1, Math.round(r.height * ratio));
     if (w !== this.canvas.width || h !== this.canvas.height) {
@@ -217,10 +261,7 @@ export class Renderer {
       const ratio = this.pixelRatio;
       gl.viewport(
         Math.round(area.x * ratio),
-        Math.round(
-          (this.canvas.getBoundingClientRect().height - area.y - area.height) *
-            ratio,
-        ),
+        Math.round((this.measure().height - area.y - area.height) * ratio),
         Math.max(1, Math.round(area.width * ratio)),
         Math.max(1, Math.round(area.height * ratio)),
       );

@@ -27,7 +27,7 @@ import {
 import { NavGrid } from "../web/src/navigation.js";
 import { parseSTL, plane } from "../web/src/geometry.js";
 import { newWorld, sanitizeWorld } from "../web/src/storage.js";
-import { shouldRetaliate } from "../web/src/game.js";
+import { shouldRetaliate, rollAction } from "../web/src/game.js";
 import { glbFixture, storedZip } from "./fixtures.mjs";
 const approx = (a, b) =>
   a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) < 1e-4));
@@ -166,10 +166,10 @@ test("only one combat attack is auto-mapped", () => {
   assert.equal(m.hit, "Hit Reaction");
   assert.ok(!Object.values(m).includes("Roll Attack"));
 });
-test("manifest defaults are peaceful", async () => {
+test("manifest defaults let pals defend themselves", async () => {
   const m = await loadGLB(glbFixture(), { decodeImages: false }),
     p = validateManifest(defaultManifest("Test Pal", m), m);
-  assert.equal(p.behavior.retaliateWhenAttacked, false);
+  assert.equal(p.behavior.retaliateWhenAttacked, true);
   assert.equal(p.id, "test-pal");
   assert.equal(slug(" Fluffy & Blue "), "fluffy-blue");
 });
@@ -256,11 +256,11 @@ test("terrain rasterization supports flat ground", () => {
   assert.ok(n.canStand(0, 0));
   assert.equal(n.ground(0, 0), 0);
 });
-test("retaliation needs both switches and a living pal", () => {
+test("retaliation applies from the first hit to any living pal", () => {
   const w = newWorld(),
     p = { data: { health: 100, retaliate: true } };
-  assert.equal(shouldRetaliate(w, p), false);
-  w.environment.retaliation = true;
+  assert.equal(shouldRetaliate(w, p), true);
+  p.data.retaliate = undefined;
   assert.equal(shouldRetaliate(w, p), true);
   p.data.retaliate = false;
   assert.equal(shouldRetaliate(w, p), false);
@@ -283,4 +283,40 @@ test("backup validates positions and world type", () => {
     () => sanitizeWorld({ ...w, type: "bad" }, new Set()),
     /Invalid/,
   );
+});
+test("walking is the normal action, with other animations mixed in", () => {
+  const pal = (values) => {
+    let i = 0;
+    return {
+      rng: () => values[Math.min(i++, values.length - 1)],
+      manifest: { animations: { idle: "Idle", walk: "Walk", eat: "Eat" } },
+    };
+  };
+  assert.equal(rollAction(pal([0.1])).action, "walk");
+  assert.equal(rollAction(pal([0.1])).moves, true);
+  assert.equal(rollAction(pal([0.7])).action, "trot");
+  const flourish = rollAction(pal([0.95, 0.5]));
+  assert.ok(!flourish.moves);
+  assert.ok(["look", "graze", "stretch"].includes(flourish.action));
+  // Sitting, cheering and hopping need those clips, so a pal without them
+  // only ever gets the idle-based flourishes.
+  const plain = rollAction({
+    rng: () => 0.99,
+    manifest: { animations: { idle: "Idle", walk: "Walk" } },
+  });
+  assert.ok(["look", "stretch"].includes(plain.action));
+  let moving = 0;
+  for (let i = 0; i < 600; i++)
+    if (
+      rollAction({
+        rng: Math.random,
+        manifest: {
+          animations: { idle: "Idle", walk: "Walk", eat: "Eat", sit: "Sit" },
+        },
+      }).moves
+    )
+      moving++;
+  assert.ok(moving > 300 && moving < 540);
+  // A pal already standing beside the player should not wander off.
+  assert.equal(rollAction(pal([0.2]), true).action, "look");
 });

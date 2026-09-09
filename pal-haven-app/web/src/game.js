@@ -24,6 +24,7 @@ import {
   vsub,
   vmul,
   seeded,
+  transform,
 } from "./math.js";
 import { plane, ring, material } from "./geometry.js";
 const LAB_FLOOR = plane(180),
@@ -36,12 +37,67 @@ const SHADOW = plane(2),
     contact: true,
     transparent: true,
   };
-const qualityRatio = { economy: 0.75, balanced: 1, clear: 1.5 },
-  qualityFPS = { economy: 30, balanced: 45, clear: 60 };
+/* Quality now only decides how sharp the picture is. Every tier draws every
+ * animation frame, so the game always runs at the display's refresh rate. */
+const qualityRatio = { economy: 1, balanced: 1.5, clear: 2.25, ultra: 3 },
+  qualityTexture = { economy: 1024, balanced: 2048, clear: 4096, ultra: 4096 };
+const STEP = 1 / 60;
+// Interaction reach in metres. Generous on purpose so phone aiming feels fair.
+export const REACH = { attack: 6.5, pick: 5.5, pet: 5.5, aim: 34 };
+// How long a fainted pal lingers as a physical object before it fades away.
+export const REMAINS_SECONDS = 15;
+// Retaliation is a per-pal switch only, and it applies from the very first hit.
 export function shouldRetaliate(world, pal) {
-  return (
-    !!world.environment.retaliation && pal.data.retaliate && pal.data.health > 0
-  );
+  return pal.data.retaliate !== false && pal.data.health > 0;
+}
+/* Randomised behaviour. Walking is the everyday state; now and then a pal
+ * stops to play a different animation instead. Only clips the pal actually
+ * ships with are chosen, so nothing falls back to a wrong pose. */
+const IDLE_ACTIONS = [
+  { action: "look", slot: "idle", weight: 5, min: 1.4, span: 2.6, turn: true },
+  { action: "graze", slot: "eat", weight: 4, min: 2.4, span: 3.6 },
+  { action: "rest", slot: "sit", weight: 3, min: 2.8, span: 4.2 },
+  { action: "cheer", slot: "happy", weight: 2, min: 1, span: 1.6 },
+  { action: "hop", slot: "jump", weight: 2, min: 0.9, span: 1.2 },
+  { action: "stretch", slot: "idle", weight: 2, min: 1.5, span: 2, turn: true },
+];
+/* `calm` is used for a pal already standing next to you, where walking off
+ * would look wrong, so those rolls favour the standing-still animations. */
+export function rollAction(p, calm = false) {
+  const roll = p.rng();
+  if (!calm) {
+    if (roll < 0.62)
+      return { action: "walk", moves: true, min: 2.6, span: 4.4 };
+    if (roll < 0.74)
+      return { action: "trot", moves: true, min: 1.6, span: 2.4 };
+  } else if (roll < 0.35) {
+    return { action: "look", slot: "idle", min: 2, span: 2.5, turn: true };
+  }
+  const animations = p.manifest?.animations || {},
+    pool = IDLE_ACTIONS.filter((a) => a.slot === "idle" || animations[a.slot]),
+    total = pool.reduce((s, a) => s + a.weight, 0);
+  let pick = p.rng() * total;
+  for (const a of pool) {
+    pick -= a.weight;
+    if (pick <= 0) return a;
+  }
+  return pool[pool.length - 1];
+}
+function startAction(p, next) {
+  p.action = next.action;
+  p.timer = next.min + p.rng() * next.span;
+  p.hurry = next.action === "trot";
+  if (next.moves) {
+    p.actionSlot = null;
+    p.turning = 0;
+    return;
+  }
+  p.actionSlot = next.slot;
+  p.goal = null;
+  p.path = [];
+  p.turning = next.turn ? (p.rng() - 0.5) * 1.9 : 0;
+  p.state = "act";
+  p.clip(next.slot, { restart: true });
 }
 class Creature {
   constructor(data, asset) {
@@ -62,6 +118,16 @@ class Creature {
     this.flash = 0;
     this.attackHit = false;
     this.elapsed = 0;
+    this.hurry = false;
+    // What this pal is currently doing, and which clip that action plays.
+    this.action = "walk";
+    this.actionSlot = null;
+    this.turning = 0;
+    // Remains state: a fainted pal becomes a nudge-able object for a while.
+    this.remains = false;
+    this.deathTime = 0;
+    this.sink = 0;
+    this.velocity = [0, 0];
     this.rng = seeded(
       data.id.split("").reduce((s, c) => s + c.charCodeAt(0), 17),
     );
@@ -119,7 +185,7 @@ export class Game {
       quality: "balanced",
       sensitivity: 1,
       invertY: false,
-      maxPals: 12,
+      maxPals: 24,
     };
     this.assets = new Map();
     this.pals = [];
@@ -147,10 +213,12 @@ export class Game {
   }
   configure(settings) {
     this.settings = settings;
+    // Render at (or above) the device's own pixel density for a sharp HD image.
     this.renderer.pixelRatio = Math.min(
-      devicePixelRatio || 1,
-      qualityRatio[settings.quality] || 1,
+      Math.max(1, devicePixelRatio || 1),
+      qualityRatio[settings.quality] || 1.5,
     );
+    this.renderer.measure(true);
   }
   unload() {
     this.controls.reset();
@@ -213,6 +281,10 @@ export class Game {
         nav.nearest(world.player.position) || nav.nearest(this.world.home),
       health: world.player.health || 100,
     };
+    /* Retaliation used to need a world switch AND a per-pal switch, so pals
+     * ignored the first hits. One-time migration turns both on. */
+    const legacyPeaceful = this.world.environment.retaliation !== true;
+    this.world.environment.retaliation = true;
     for (const data of world.pals) {
       const asset = await this.loadAsset(data.assetId);
       const pos = nav.nearest(
@@ -225,6 +297,7 @@ export class Game {
           ...data,
           position: pos,
           home: nav.nearest(data.home) || this.world.home.slice(),
+          retaliate: legacyPeaceful ? true : data.retaliate !== false,
         },
         asset,
       );
@@ -247,7 +320,7 @@ export class Game {
         "A creature used by this world is missing from your library.",
       );
     const model = await loadGLB(await raw.blob.arrayBuffer(), {
-      maxTextureSize: this.settings.quality === "economy" ? 512 : 1024,
+      maxTextureSize: qualityTexture[this.settings.quality] || 2048,
     });
     const asset = { ...raw, model };
     this.assets.set(id, asset);
@@ -266,7 +339,7 @@ export class Game {
       speed: 1,
       radius: manifest.behavior.wanderRadius,
       behavior: "roam",
-      retaliate: manifest.behavior.retaliateWhenAttacked,
+      retaliate: manifest.behavior.retaliateWhenAttacked !== false,
     };
   }
   async spawn(assetId, count = 1, opts = {}) {
@@ -274,7 +347,7 @@ export class Game {
     if (
       !Number.isInteger(count) ||
       count < 1 ||
-      count > 24 ||
+      count > 64 ||
       this.pals.length + count > this.settings.maxPals
     )
       throw Error(
@@ -288,34 +361,56 @@ export class Game {
           0,
         ) +
         tri * count;
-    if (total > 650000)
+    if (total > 6000000)
       throw Error(
-        "That would exceed the 650k visible creature triangle budget. Add fewer copies or optimize this model.",
+        "That would exceed the 6M visible creature triangle budget. Add fewer copies or optimise this model.",
       );
     const nav = this.environment.nav,
       created = [];
-    const direction = [Math.sin(this.player.yaw), 0, Math.cos(this.player.yaw)],
-      base = [
-        this.player.position[0] + direction[0] * 3,
-        0,
-        this.player.position[2] + direction[2] * 3,
-      ];
+    /* Pals turn up anywhere in the world. Each one takes a random walkable
+     * spot across the whole map, kept off your toes and off each other. */
+    const radius =
+        asset.manifest.physics.radius *
+        (opts.scale || 1) *
+        asset.manifest.scale,
+      reach = (nav.width || 80) * 0.46,
+      taken = this.pals.map((p) => p.position.slice());
     for (let i = 0; i < count; i++) {
-      const angle = i * 2.399,
-        rad = count === 1 ? 0 : Math.sqrt(i) * 1.35,
-        pos = nav.nearest(
-          [base[0] + Math.sin(angle) * rad, 0, base[2] + Math.cos(angle) * rad],
-          asset.manifest.physics.radius *
-            (opts.scale || 1) *
-            asset.manifest.scale,
+      let pos = null,
+        fallback = null,
+        best = -Infinity;
+      for (let tries = 0; tries < 160; tries++) {
+        const angle = Math.random() * Math.PI * 2,
+          span = Math.sqrt(Math.random()) * reach,
+          candidate = nav.nearest(
+            [Math.sin(angle) * span, 0, Math.cos(angle) * span],
+            radius,
+          );
+        if (!candidate) continue;
+        const clearance = Math.min(
+          distance2(candidate, this.player.position) - 2.5,
+          ...taken.map((t) => distance2(candidate, t) - radius - 0.9),
         );
+        if (clearance > 1.5) {
+          pos = candidate;
+          break;
+        }
+        if (clearance > best) {
+          best = clearance;
+          fallback = candidate;
+        }
+      }
+      pos = pos || fallback || nav.nearest(this.player.position, radius);
       if (!pos)
-        throw Error("There is not enough walkable space for this creature.");
+        throw Error(
+          "This world has no walkable ground yet. Reset the terrain or import a landscape, then try again.",
+        );
+      taken.push(pos.slice());
       const data = this.makeData(assetId, asset.manifest, pos);
       Object.assign(data, opts);
       data.position = pos;
       data.home = pos.slice();
-      data.yaw = this.player.yaw + Math.PI;
+      data.yaw = Math.random() * Math.PI * 2;
       const p = new Creature(data, asset);
       p.clip("idle");
       created.push(p);
@@ -362,23 +457,23 @@ export class Game {
     const p = this.target;
     if (name === "attack") {
       if (this.cooldown > 0) return;
-      this.cooldown = 0.65;
+      this.cooldown = 0.45;
       this.hooks.effect?.("attack");
       if (
         p &&
         distance2(this.player.position, p.position) <=
-          2.6 + p.collisionRadius &&
+          REACH.attack + p.collisionRadius &&
         this.environment.nav.lineOfSight(this.player.position, p.position, 0.1)
       )
         this.hit(p, 20);
-      else this.hooks.notice?.("Aim at a nearby pal to test your attack.");
+      else this.hooks.miss?.();
     } else if (name === "pick") {
       if (this.held) {
         const pos = this.environment.nav.nearest(
           [
-            this.player.position[0] + Math.sin(this.player.yaw) * 2,
+            this.player.position[0] + Math.sin(this.player.yaw) * 2.4,
             0,
-            this.player.position[2] + Math.cos(this.player.yaw) * 2,
+            this.player.position[2] + Math.cos(this.player.yaw) * 2.4,
           ],
           this.held.collisionRadius,
         );
@@ -394,7 +489,8 @@ export class Game {
         this.hooks.change?.();
       } else if (
         p &&
-        distance2(this.player.position, p.position) < 2.8 &&
+        distance2(this.player.position, p.position) <
+          REACH.pick + p.collisionRadius &&
         p.manifest.behavior.canBePickedUp &&
         p.data.health > 0
       ) {
@@ -405,11 +501,15 @@ export class Game {
         this.hooks.notice?.(
           "Picked up " + p.data.name + ". Tap Drop to place them.",
         );
-      } else this.hooks.notice?.("Aim at a living, pickable pal within 2.8 m.");
+      } else
+        this.hooks.notice?.(
+          `Aim at a living, pickable pal within ${REACH.pick} m.`,
+        );
     } else if (name === "pet") {
       if (
         p &&
-        distance2(this.player.position, p.position) < 2.8 &&
+        distance2(this.player.position, p.position) <
+          REACH.pet + p.collisionRadius &&
         p.data.health > 0
       ) {
         p.aggro = false;
@@ -428,23 +528,43 @@ export class Game {
     if (p.data.health <= 0 || p === this.held) return;
     p.data.health = Math.max(0, p.data.health - amount);
     p.flash = 0.25;
-    p.state = p.data.health === 0 ? "faint" : "hit";
+    const fatal = p.data.health === 0;
+    p.state = fatal ? "faint" : "hit";
     p.clip(p.state, { restart: true });
     p.timer = p.view.duration();
     p.attackHit = true;
-    p.aggro = shouldRetaliate(this.world, p);
-    p.anger = 12;
+    // Drop whatever they were doing; they react instead of grazing on.
+    p.actionSlot = null;
+    p.turning = 0;
+    p.aggro = !fatal && shouldRetaliate(this.world, p);
+    p.anger = 20;
     this.selected = p;
-    this.hooks.notice?.(
-      p.data.health === 0
-        ? p.data.name + " fainted. Revive from their settings."
-        : `${p.data.name} −${amount} HP${p.aggro ? " · retaliating" : ""}`,
-    );
+    if (fatal) {
+      // Knock the remains away from the blow, then let physics settle them.
+      p.remains = true;
+      p.deathTime = 0;
+      const away = Math.atan2(
+        p.position[0] - this.player.position[0],
+        p.position[2] - this.player.position[2],
+      );
+      p.velocity = [Math.sin(away) * 2.4, Math.cos(away) * 2.4];
+    }
+    /* Damage is shown as a floating number over the pal, not as a text toast. */
+    this.hooks.damage?.({
+      amount,
+      fatal,
+      name: p.data.name,
+      point: [p.position[0], p.position[1] + p.height * 0.95, p.position[2]],
+    });
     this.hooks.change?.();
   }
   revive(p) {
     p.data.health = p.manifest.combat.maxHealth;
     p.aggro = false;
+    p.remains = false;
+    p.deathTime = 0;
+    p.sink = 0;
+    p.velocity = [0, 0];
     p.state = "getUp";
     p.clip("getUp", { restart: true });
     p.timer = p.view.duration();
@@ -534,16 +654,20 @@ export class Game {
     this.lastTime = now;
     if (
       document.hidden ||
-      (this.mode === "hub" && !this.canvas.getBoundingClientRect().width)
+      (this.mode === "hub" && !this.renderer.measure().width)
     )
       return;
     this.elapsed += dt;
     if (this.mode === "play" && !this.paused && !this.lab) {
-      this.accumulator = Math.min(0.2, this.accumulator + dt);
-      while (this.accumulator >= 1 / 30) {
-        this.step(1 / 30);
-        this.accumulator -= 1 / 30;
+      // 60 Hz simulation, capped so one hitch cannot snowball into a freeze.
+      this.accumulator = Math.min(0.25, this.accumulator + dt);
+      let steps = 0;
+      while (this.accumulator >= STEP && steps < 5) {
+        this.step(STEP);
+        this.accumulator -= STEP;
+        steps++;
       }
+      if (steps >= 5) this.accumulator = 0;
     } else this.accumulator = 0;
     if (this.mode === "hub") {
       for (const p of this.pals) p.view.update(dt);
@@ -566,12 +690,10 @@ export class Game {
     }
     this.controls.tick(dt);
     if (this.mode === "play") this.updateCamera();
-    const budget = 1000 / (qualityFPS[this.settings.quality] || 45);
-    if (now - this.lastDraw >= budget - 1) {
-      this.lastDraw = now;
-      this.draw();
-      this.fpsFrames++;
-    }
+    // Draw on every animation frame; the display refresh rate is the only cap.
+    this.lastDraw = now;
+    this.draw();
+    this.fpsFrames++;
     this.fpsTime += dt;
     if (this.fpsTime >= 0.5) {
       this.fps = Math.round(this.fpsFrames / this.fpsTime);
@@ -581,7 +703,8 @@ export class Game {
     }
   }
   step(dt) {
-    const nav = this.environment.nav;
+    const nav = this.environment.nav,
+      faded = [];
     this.cooldown = Math.max(0, this.cooldown - dt);
     if (this.world.environment.cycle)
       this.world.environment.time =
@@ -624,7 +747,9 @@ export class Game {
       }
       if (p.data.health <= 0) {
         p.state = "faint";
+        this.settleRemains(p, dt);
         p.view.update(dt);
+        if (p.remains && p.deathTime > REMAINS_SECONDS) faded.push(p);
         continue;
       }
       if (p.aggro && !shouldRetaliate(this.world, p)) {
@@ -675,8 +800,8 @@ export class Game {
         p.anger -= dt;
         if (
           p.anger <= 0 ||
-          playerDistance > 20 ||
-          distance2(p.position, p.data.home) > p.data.radius + 20
+          playerDistance > 34 ||
+          distance2(p.position, p.data.home) > p.data.radius + 34
         ) {
           p.aggro = false;
           p.goal = p.data.home.slice();
@@ -705,21 +830,17 @@ export class Game {
           if (playerDistance > 2.2 + p.collisionRadius) {
             goal = this.player.position;
             running = playerDistance > 5;
-          }
+            p.action = running ? "trot" : "walk";
+            p.actionSlot = null;
+          } else if (p.timer <= 0) startAction(p, rollAction(p, true));
         } else if (p.data.behavior === "roam") {
-          if (p.state === "sleep" && p.timer > 0) {
-            p.view.update(dt);
-            continue;
-          }
-          if (p.timer <= 0 || !p.goal) {
-            if (p.goal && p.rng() < 0.18 && p.manifest.animations.sleep) {
-              p.state = "sleep";
-              p.clip("sleep");
-              p.timer = 3 + p.rng() * 4;
-              p.goal = null;
-            } else {
+          /* Walking is normal. When a stretch of walking ends they sometimes
+           * play another animation instead of setting off again. */
+          if (p.timer <= 0 || (!p.goal && !p.actionSlot)) {
+            startAction(p, rollAction(p, false));
+            if (!p.actionSlot) {
               const a = p.rng() * Math.PI * 2,
-                r = p.rng() * p.data.radius;
+                r = p.data.radius * (0.3 + p.rng() * 0.7);
               p.goal = nav.nearest(
                 [
                   p.data.home[0] + Math.sin(a) * r,
@@ -728,16 +849,22 @@ export class Game {
                 ],
                 p.collisionRadius,
               );
-              p.timer = 4 + p.rng() * 6;
-              p.state = "idle";
+              p.path = [];
+              p.pathTimer = 0;
             }
           }
-          if (p.state === "sleep" && p.timer > 0) {
-            p.view.update(dt);
-            continue;
+          if (!p.actionSlot && p.goal) {
+            if (distance2(p.position, p.goal) > 0.55) {
+              goal = p.goal;
+              running = !!p.hurry;
+            } else if (p.timer > 0.4) p.timer = 0.35;
           }
-          if (p.goal && distance2(p.position, p.goal) > 0.55) goal = p.goal;
         }
+      }
+      if (!goal && p.turning) {
+        // Some standing actions include a slow look around.
+        p.data.yaw += p.turning * dt;
+        p.turning *= Math.max(0, 1 - dt * 0.7);
       }
       if (goal) {
         const radius = p.collisionRadius;
@@ -780,11 +907,21 @@ export class Game {
           p.state = "idle";
           p.clip("idle");
         }
+      } else if (p.actionSlot) {
+        // Hold the chosen animation instead of snapping back to idle.
+        p.state = "act";
+        p.clip(p.actionSlot);
       } else {
         p.state = "idle";
         p.clip("idle");
       }
       p.view.update(dt * p.data.speed);
+    }
+    // Remains that finished sinking are cleared out of the world.
+    for (const p of faded) {
+      p.remains = false;
+      this.hooks.notice?.(`${p.data.name}'s remains faded away.`);
+      this.remove(p);
     }
     // Local separation supplements A*; stationary fainted pals are not rigid bodies.
     for (let i = 0; i < this.pals.length; i++)
@@ -872,8 +1009,8 @@ export class Game {
         off = Math.sqrt(Math.max(0, dot(delta, delta) - along * along));
       if (
         along > 0 &&
-        along < 8 &&
-        off < Math.max(0.3, p.collisionRadius * 1.2) &&
+        along < REACH.aim &&
+        off < Math.max(0.9, p.collisionRadius * 2.1) &&
         along < closest &&
         this.environment.nav.lineOfSight(this.player.position, p.position, 0.08)
       ) {
@@ -882,6 +1019,66 @@ export class Game {
       }
     }
     this.target = target;
+  }
+  /* Fainted pals stay behind as a physical object: walk into them and they get
+   * shoved along the ground, then they settle, sink and fade out. */
+  settleRemains(p, dt) {
+    const nav = this.environment.nav;
+    if (p.remains) {
+      p.deathTime += dt;
+      p.sink = clamp((p.deathTime - (REMAINS_SECONDS - 1.8)) / 1.8, 0, 1);
+    }
+    const shove = (from, weight) => {
+      const reach = p.collisionRadius + 0.42,
+        d = distance2(p.position, from);
+      if (d > reach) return;
+      const angle =
+          d > 0.001
+            ? Math.atan2(p.position[0] - from[0], p.position[2] - from[2])
+            : p.rng() * Math.PI * 2,
+        push = (1 - d / reach) * 11 * weight * dt;
+      p.velocity[0] += Math.sin(angle) * push;
+      p.velocity[1] += Math.cos(angle) * push;
+      p.data.yaw = angleLerp(p.data.yaw, angle, 1 - Math.exp(-dt * 3));
+    };
+    if (this.player.health > 0) shove(this.player.position, 1);
+    for (const q of this.pals)
+      if (q !== p && q !== this.held && q.data.health > 0)
+        shove(q.position, 0.5);
+    const damping = Math.exp(-dt * 4.5);
+    p.velocity[0] *= damping;
+    p.velocity[1] *= damping;
+    const speed = Math.hypot(p.velocity[0], p.velocity[1]);
+    if (speed < 0.03) {
+      p.velocity[0] = p.velocity[1] = 0;
+      return;
+    }
+    const limit = Math.min(speed, 6) / speed,
+      before = p.position;
+    p.data.position = nav.move(
+      before,
+      p.velocity[0] * limit * dt,
+      p.velocity[1] * limit * dt,
+      p.collisionRadius * 0.6,
+    );
+    if (distance2(before, p.position) < 0.0005) {
+      p.velocity[0] *= 0.25;
+      p.velocity[1] *= 0.25;
+    }
+  }
+  /* World point -> CSS pixel, so the HUD can float damage numbers over the pal
+   * that was actually hit. */
+  project(point) {
+    const vp = this.renderer.vp;
+    if (!vp) return null;
+    const clip = transform(vp, point, 1),
+      w = vp[3] * point[0] + vp[7] * point[1] + vp[11] * point[2] + vp[15];
+    if (!Number.isFinite(w) || w <= 0.0001) return null;
+    const rect = this.renderer.measure();
+    return {
+      x: ((clip[0] / w) * 0.5 + 0.5) * rect.width,
+      y: (0.5 - (clip[1] / w) * 0.5) * rect.height,
+    };
   }
   draw() {
     if (!this.environment || this.mode === "loading") return;
@@ -896,22 +1093,25 @@ export class Game {
       : this.environment.records.slice();
     for (const p of this.pals) {
       if (this.lab && this.lab.pal !== p) continue;
-      const pos = [
+      const sink = p.sink || 0,
+        pos = [
           p.position[0],
-          p.position[1] + p.manifest.physics.groundOffset * p.scale,
+          p.position[1] +
+            p.manifest.physics.groundOffset * p.scale -
+            sink * (p.height + 0.5),
           p.position[2],
         ],
         root = yawMatrix(pos, p.data.yaw, p.scale),
         isLab = this.lab?.pal === p;
       const shadowY = this.environment.nav.ground(p.position[0], p.position[2]);
-      if (Number.isFinite(shadowY))
+      if (Number.isFinite(shadowY) && sink < 0.98)
         records.push({
           geometry: SHADOW,
           material: SHADOW_MAT,
           model: yawMatrix([p.position[0], shadowY + 0.028, p.position[2]], 0, [
-            Math.max(0.25, p.collisionRadius * 1.6),
+            Math.max(0.25, p.collisionRadius * 1.6) * (1 - sink),
             1,
-            Math.max(0.25, p.collisionRadius * 1.5),
+            Math.max(0.25, p.collisionRadius * 1.5) * (1 - sink),
           ]),
         });
       records.push(

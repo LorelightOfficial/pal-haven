@@ -20,7 +20,7 @@
 
 ## Creature states
 
-Idle / walk / run / sleep / follow / held / hit / attack / faint / get-up / pet. A world and an instance must both allow retaliation. Pals never initiate aggression on their own. A normalized `combat.hitTime` delivers at most one hit during the single mapped attack. Fainted creatures wait for an explicit revive.
+Idle / walk / run / follow / held / hit / attack / faint / get-up / pet. There is no sleep state. Behaviour comes from a weighted roller (`rollAction`): walking is the normal action, with occasional trotting, looking around, grazing, resting, cheering, hopping and stretching, and only the clips a pal actually ships with are eligible. New pals are placed at a random walkable point anywhere on the map, clear of the player and of each other. Every pal retaliates from the very first hit unless its own switch is turned off, and pals never initiate aggression on their own. A normalized `combat.hitTime` delivers at most one hit during the single mapped attack. A fainted pal stays as nudgeable remains for about 15 seconds, drifting when the player or another pal pushes past it, then sinks and leaves the world; revive it before that to keep it.
 
 Menus pause simulation. The animation lab pauses all world AI and scrubs only the chosen pal. UI transitions do not change save timing or creature state. Android landscape locking remains active for in-world menus and the lab.
 

@@ -36,7 +36,7 @@ const validPath = (p) =>
   !/[\x00-\x1f]/.test(p);
 export function preflightZip(
   buffer,
-  { maxCompressed = 64 * MB, maxExpanded = 160 * MB, maxEntries = 512 } = {},
+  { maxCompressed = 256 * MB, maxExpanded = 768 * MB, maxEntries = 4096 } = {},
 ) {
   if (buffer.byteLength > maxCompressed)
     throw Error(`ZIP exceeds the ${maxCompressed / MB} MB import limit.`);
@@ -98,7 +98,7 @@ export function preflightZip(
       ((attrs >>> 16) & 0xf000) === 0xa000 ||
       offset >= start ||
       packed > buffer.byteLength ||
-      unpacked > 64 * MB
+      unpacked > 256 * MB
     )
       throw Error(
         "Encrypted, symlinked or unsupported ZIP entries are not accepted.",
@@ -161,7 +161,7 @@ export function defaultManifest(name, model) {
     },
     behavior: {
       canBePickedUp: true,
-      retaliateWhenAttacked: false,
+      retaliateWhenAttacked: true,
       walkSpeed: 1.1,
       runSpeed: 2.8,
       wanderRadius: 8,
@@ -255,24 +255,24 @@ export function validateManifest(raw, model) {
     },
     behavior: {
       canBePickedUp: b.canBePickedUp ?? true,
-      retaliateWhenAttacked: b.retaliateWhenAttacked ?? false,
+      retaliateWhenAttacked: b.retaliateWhenAttacked ?? true,
       walkSpeed: number(b.walkSpeed, 0.1, 6, "Walk speed", 1.1),
       runSpeed: number(b.runSpeed, 0.1, 12, "Run speed", 2.8),
-      wanderRadius: number(b.wanderRadius, 1, 35, "Wander radius", 8),
+      wanderRadius: number(b.wanderRadius, 1, 200, "Wander radius", 8),
     },
     combat: {
       maxHealth: number(c.maxHealth, 1, 10000, "Max health", 100),
       damage: number(c.damage, 0, 1000, "Damage", 8),
       cooldown: number(c.cooldown, 0.4, 20, "Attack cooldown", 1.8),
-      range: number(c.range, 0.2, 5, "Attack range", 1.3),
+      range: number(c.range, 0.2, 30, "Attack range", 1.3),
       hitTime: number(c.hitTime, 0, 1, "Attack hit time", 0.45),
     },
   };
 }
 export async function inspectCreature(file) {
-  if (file.size > 64 * MB)
+  if (file.size > 256 * MB)
     throw Error(
-      "Select a file under 64 MB. Extract the .glb from large recovery archives first.",
+      "Select a file under 256 MB. Extract the .glb from large recovery archives first.",
     );
   let modelBlob = file,
     rawManifest = null,
@@ -287,7 +287,7 @@ export async function inspectCreature(file) {
       throw Error("ZIP contains multiple pals. Import one .pal.zip at a time.");
     if (manifests.length) {
       const entry = manifests[0];
-      if (entry.size > 65536) throw Error("pal.json exceeds 64 KB.");
+      if (entry.size > 262144) throw Error("pal.json exceeds 256 KB.");
       try {
         rawManifest = JSON.parse(await zip.file(entry.name).async("string"));
       } catch {
@@ -297,8 +297,8 @@ export async function inspectCreature(file) {
       const prefix = entry.name.slice(0, entry.name.length - "pal.json".length),
         path = prefix + rawManifest.model,
         info = entries.find((e) => e.name === path);
-      if (!info || info.size > 24 * MB)
-        throw Error("Manifest model is missing or above 24 MB.");
+      if (!info || info.size > 192 * MB)
+        throw Error("Manifest model is missing or above 192 MB.");
       modelBlob = new Blob([await zip.file(path).async("uint8array")], {
         type: "model/gltf-binary",
       });
@@ -309,8 +309,8 @@ export async function inspectCreature(file) {
         throw Error(
           "Recovery ZIP must contain exactly one GLB. Otherwise extract your chosen .glb and import it directly.",
         );
-      if (candidates[0].size > 24 * MB)
-        throw Error("Embedded model exceeds 24 MB.");
+      if (candidates[0].size > 192 * MB)
+        throw Error("Embedded model exceeds 192 MB.");
       modelBlob = new Blob(
         [await zip.file(candidates[0].name).async("uint8array")],
         { type: "model/gltf-binary" },

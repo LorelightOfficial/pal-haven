@@ -1,4 +1,7 @@
 import { clamp } from "./math.js";
+// Outer-ring sprint lock: push past LOCK_IN to latch a run, ease back inside LOCK_OUT to drop it.
+const SPRINT_LOCK_IN = 0.82,
+  SPRINT_LOCK_OUT = 0.45;
 export class Controls {
   constructor(canvas, { onAction, onLook, onChange }) {
     this.canvas = canvas;
@@ -9,6 +12,9 @@ export class Controls {
     this.axis = [0, 0];
     this.enabled = false;
     this.sprint = false;
+    this.autoSprint = true;
+    this.sprintLatched = false;
+    this.magnitude = 0;
     this.drag = null;
     this.joyPointer = null;
     const editable = (e) =>
@@ -72,6 +78,10 @@ export class Controls {
         scale = d > max ? max / d : 1;
       this.axis = [(dx * scale) / max, (-dy * scale) / max];
       knob.style.transform = `translate(${dx * scale}px,${dy * scale}px)`;
+      this.magnitude = clamp(d / max, 0, 1);
+      if (this.magnitude >= SPRINT_LOCK_IN) this.sprintLatched = true;
+      else if (this.magnitude <= SPRINT_LOCK_OUT) this.sprintLatched = false;
+      this.paintSprint();
     };
     el.addEventListener("pointerdown", (e) => {
       if (!this.enabled || this.joyPointer !== null) return;
@@ -88,9 +98,22 @@ export class Controls {
         if (e.pointerId === this.joyPointer) {
           this.joyPointer = null;
           this.axis = [0, 0];
+          this.magnitude = 0;
+          this.sprintLatched = false;
           knob.style.transform = "translate(0,0)";
+          this.paintSprint();
         }
       });
+  }
+  paintSprint() {
+    if (!this.joystick) return;
+    const moving = this.magnitude > 0.08;
+    this.joystick.classList.toggle("is-locked", this.sprintLatched);
+    this.joystick.classList.toggle(
+      "is-running",
+      moving && (this.sprintLatched || this.autoSprint),
+    );
+    this.joystick.style.setProperty("--joy-force", this.magnitude.toFixed(2));
   }
   movement() {
     let x =
@@ -110,6 +133,8 @@ export class Controls {
       x,
       z,
       sprint:
+        this.autoSprint ||
+        this.sprintLatched ||
         this.sprint ||
         this.keys.has("ShiftLeft") ||
         this.keys.has("ShiftRight"),
@@ -128,8 +153,11 @@ export class Controls {
   reset() {
     this.keys.clear();
     this.axis = [0, 0];
+    this.magnitude = 0;
+    this.sprintLatched = false;
     this.drag = null;
     this.joyPointer = null;
     if (this.knob) this.knob.style.transform = "translate(0,0)";
+    this.paintSprint();
   }
 }

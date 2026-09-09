@@ -86,10 +86,10 @@ export function inspectGLB(buffer) {
 }
 export async function loadGLB(
   buffer,
-  { landscape = false, decodeImages = true, maxTextureSize = 1024 } = {},
+  { landscape = false, decodeImages = true, maxTextureSize = 4096 } = {},
 ) {
-  if (buffer.byteLength > (landscape ? 40 : 24) * 1024 * 1024)
-    fail(`GLB exceeds the ${landscape ? 40 : 24} MB safety limit.`);
+  if (buffer.byteLength > (landscape ? 256 : 192) * 1024 * 1024)
+    fail(`GLB exceeds the ${landscape ? 256 : 192} MB safety limit.`);
   const { json: g, bin } = inspectGLB(buffer),
     warnings = [];
   for (const ext of g.extensionsRequired || [])
@@ -98,21 +98,23 @@ export async function loadGLB(
         `Required extension ${ext} is not supported. Export a plain, uncompressed GLB with PNG/JPEG textures.`,
       );
   if (
-    (g.nodes?.length || 0) > 512 ||
-    (g.meshes?.length || 0) > 128 ||
-    (g.animations?.length || 0) > 64 ||
-    (g.images?.length || 0) > 12
+    (g.nodes?.length || 0) > 16384 ||
+    (g.meshes?.length || 0) > 4096 ||
+    (g.animations?.length || 0) > 512 ||
+    (g.images?.length || 0) > 128
   )
-    fail("GLB exceeds the node, mesh, clip or image limits.");
+    fail(
+      "GLB is beyond the structural ceiling (16k nodes, 4k meshes, 512 clips, 128 images).",
+    );
   if (!g.meshes?.length || !g.nodes?.length)
     fail("GLB has no mesh or scene nodes.");
   const views = g.bufferViews || [],
     access = g.accessors || [],
     cache = new Map();
   if (
-    access.length > 8192 ||
+    access.length > 131072 ||
     access.reduce((n, a) => n + (a.count || 0) * (WIDTH[a.type] || 1), 0) >
-      24000000
+      600000000
   )
     fail("GLB accessor budget is too large.");
   function view(index) {
@@ -322,9 +324,9 @@ export async function loadGLB(
     } catch {
       fail("Cannot decode an embedded texture.");
     }
-    if (bmp.width > 4096 || bmp.height > 4096) {
+    if (bmp.width > 8192 || bmp.height > 8192) {
       bmp.close();
-      fail("Textures above 4096 px must be resized before import.");
+      fail("Textures above 8192 px must be resized before import.");
     }
     imageSizes.push([bmp.width, bmp.height]);
     const f = Math.min(1, maxTextureSize / Math.max(bmp.width, bmp.height));
@@ -376,8 +378,8 @@ export async function loadGLB(
       targetNames: m.extras?.targetNames || [],
       primitives: m.primitives.map((p) => {
         primitiveCount++;
-        if (primitiveCount > 256)
-          fail("More than 256 mesh primitives is too expensive for this app.");
+        if (primitiveCount > 4096)
+          fail("More than 4096 mesh primitives is too expensive for this app.");
         if ((p.mode ?? 4) !== 4)
           fail(
             "Use triangle meshes. Lines and points are not importable as creatures.",
@@ -443,8 +445,8 @@ export async function loadGLB(
           for (let i = 0; i < position.length / 3; i++)
             vertexColor.set(c.slice(i * width, i * width + 3), i * 3);
         }
-        if ((p.targets?.length || 0) > 8)
-          fail("A maximum of 8 morph targets is supported per mesh.");
+        if ((p.targets?.length || 0) > 64)
+          fail("A maximum of 64 morph targets is supported per mesh.");
         const targets = (p.targets || []).map((t) => {
           const out = {};
           for (const k of ["POSITION", "NORMAL"])
@@ -473,11 +475,11 @@ export async function loadGLB(
     };
   });
   if (
-    triangles > (landscape ? 160000 : 100000) ||
-    vertices > (landscape ? 480000 : 250000)
+    triangles > (landscape ? 6000000 : 3000000) ||
+    vertices > (landscape ? 12000000 : 6000000)
   )
     fail(
-      `Mesh exceeds the ${landscape ? "160,000 landscape" : "100,000 creature"} triangle or vertex safety limit.`,
+      `Mesh exceeds the ${landscape ? "6,000,000 landscape" : "3,000,000 creature"} triangle or vertex ceiling.`,
     );
   for (const n of nodes) {
     if (n.mesh !== undefined && !meshes[n.mesh])
@@ -548,9 +550,9 @@ export async function loadGLB(
             : !/(attack|hit|faint|death|jump|get.?up|wave)/i.test(name),
       };
     });
-  if (triangles > 25000 && !landscape)
+  if (triangles > 400000 && !landscape)
     warnings.push(
-      "This creature is above the recommended 25k-triangle mobile budget. Spawn fewer copies.",
+      "Heavy creature (over 400k triangles). It still imports \u2014 spawn fewer copies if the frame rate dips.",
     );
   const model = {
     nodes,

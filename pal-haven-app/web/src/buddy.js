@@ -41,7 +41,7 @@ export const TRAINING_MANIFEST = {
   physics: { radius: 0.38, height: 1.1, groundOffset: 0 },
   behavior: {
     canBePickedUp: true,
-    retaliateWhenAttacked: false,
+    retaliateWhenAttacked: true,
     walkSpeed: 1.1,
     runSpeed: 2.8,
     wanderRadius: 8,

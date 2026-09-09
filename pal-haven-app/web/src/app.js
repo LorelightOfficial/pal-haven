@@ -29,6 +29,7 @@ import {
   options,
 } from "./ui.js";
 import { clamp } from "./math.js";
+import * as sfx from "./sfx.js";
 let game = null,
   worlds = [],
   assets = [],
@@ -79,7 +80,196 @@ async function saveWorld() {
   $("save-indicator").textContent = "Saved on device";
   return snapshot;
 }
+/* Tapping a pal summons it straight away. Flip this switch in the add sheet if
+ * you want the old quantity / size / behaviour form back. */
+let askSpawnOptions = false;
+/* Floating combat numbers, drawn over the pal you actually hit. This replaces
+ * the old "-20 HP" text toast. */
+function spawnFloater(text, x, y, kind) {
+  const layer = $("damage-layer");
+  if (!layer) return;
+  while (layer.childElementCount > 24)
+    layer.removeChild(layer.firstElementChild);
+  const el = document.createElement("span");
+  el.className = "floater " + kind;
+  el.textContent = text;
+  el.style.left = Math.round(x) + "px";
+  el.style.top = Math.round(y) + "px";
+  el.style.setProperty("--drift", (Math.random() * 40 - 20).toFixed(1) + "px");
+  layer.appendChild(el);
+  const remove = () => el.remove();
+  el.addEventListener("animationend", remove);
+  setTimeout(remove, 1600);
+}
+/* Big centred callouts for world events: a pal arriving, fainting, reviving.
+ * Toasts still carry plain messages; this is the loud, game-style version. */
+let bannerTimer, bannerHide;
+function banner(title, note = "") {
+  const el = $("game-banner");
+  if (!el) return;
+  $("banner-title").textContent = title;
+  $("banner-note").textContent = note;
+  clearTimeout(bannerTimer);
+  clearTimeout(bannerHide);
+  el.hidden = false;
+  el.classList.remove("show");
+  void el.offsetWidth;
+  el.classList.add("show");
+  bannerTimer = setTimeout(() => {
+    el.classList.remove("show");
+    bannerHide = setTimeout(() => (el.hidden = true), 340);
+  }, 2200);
+}
+/* Live map. Everything is drawn relative to the player and rotated so the way
+ * you are facing is always up, the way a game radar behaves. */
+function drawRadar() {
+  const canvas = $("minimap"),
+    panel = $("minimap-panel");
+  if (!canvas || !panel || panel.hidden) return;
+  if (!game || game.mode !== "play" || game.lab || game.paused) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const size = canvas.width,
+    half = size / 2,
+    edge = half - 5,
+    span = (game.environment?.nav?.width || 80) / 2,
+    scale = edge / span,
+    px = game.player.position,
+    yaw = game.player.yaw;
+  ctx.clearRect(0, 0, size, size);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(half, half, edge, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = "rgba(18,38,31,0.78)";
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = "rgba(220,232,184,0.16)";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    ctx.beginPath();
+    ctx.arc(half, half, (edge / 4) * i, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(220,232,184,0.13)";
+  ctx.beginPath();
+  ctx.moveTo(half, half);
+  ctx.arc(half, half, edge, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5);
+  ctx.closePath();
+  ctx.fill();
+  const place = (pos) => {
+    const dx = (pos[0] - px[0]) * scale,
+      dz = (pos[2] - px[2]) * scale,
+      forward = dx * Math.sin(yaw) + dz * Math.cos(yaw),
+      side = dx * Math.cos(yaw) - dz * Math.sin(yaw);
+    return [half + side, half - forward];
+  };
+  if (game.world?.home) {
+    const [hx, hy] = place(game.world.home);
+    ctx.fillStyle = "rgba(233,226,207,0.8)";
+    ctx.fillRect(hx - 2.5, hy - 2.5, 5, 5);
+  }
+  for (const p of game.pals) {
+    const [x, y] = place(p.position),
+      dist = Math.hypot(x - half, y - half) || 1,
+      clamped = dist > edge - 4,
+      cx = clamped ? half + ((x - half) / dist) * (edge - 4) : x,
+      cy = clamped ? half + ((y - half) / dist) * (edge - 4) : y;
+    ctx.fillStyle =
+      p.data.health <= 0
+        ? "rgba(150,158,148,0.9)"
+        : p.aggro
+          ? "#e2654a"
+          : "#cfe79a";
+    ctx.beginPath();
+    ctx.arc(
+      cx,
+      cy,
+      clamped ? 2 : p === game.target ? 4.6 : 3.4,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+    if (p === game.target && !clamped) {
+      ctx.strokeStyle = "#fffefa";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+  ctx.fillStyle = "#fffefa";
+  ctx.beginPath();
+  ctx.moveTo(half, half - 7);
+  ctx.lineTo(half + 5, half + 6);
+  ctx.lineTo(half, half + 3);
+  ctx.lineTo(half - 5, half + 6);
+  ctx.closePath();
+  ctx.fill();
+  const nr = edge - 11;
+  ctx.fillStyle = "rgba(255,254,250,0.85)";
+  ctx.font = "bold 10px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("N", half - Math.sin(yaw) * nr, half - Math.cos(yaw) * nr);
+  const attack = $("action-attack");
+  if (attack)
+    attack.style.setProperty(
+      "--cool",
+      (1 - Math.min(1, game.cooldown / 0.45)).toFixed(2),
+    );
+}
+setInterval(drawRadar, 90);
+/* The first tap anywhere lets the audio engine start, and every button press
+ * gets a soft click from then on. */
+document.addEventListener(
+  "pointerdown",
+  (event) => {
+    sfx.unlock();
+    if (event.target?.closest?.("button")) sfx.play("tap");
+  },
+  { passive: true },
+);
+function showDamage(info) {
+  if (!game) return;
+  const rect = game.renderer.measure(),
+    point = game.project(info.point),
+    x = point ? point.x : rect.width / 2,
+    y = point ? point.y : rect.height * 0.42;
+  spawnFloater(
+    "-" + Math.round(info.amount),
+    x,
+    y,
+    info.fatal ? "damage fatal" : "damage",
+  );
+  if (info.fatal) {
+    spawnFloater(info.name + " fainted", x, y + 30, "note");
+    banner(info.name + " fainted", "Their remains linger for a few seconds.");
+  }
+  sfx.play(info.fatal ? "faint" : "hit");
+  const cross = $("crosshair");
+  cross.classList.remove("hit");
+  void cross.offsetWidth;
+  cross.classList.add("hit");
+  setTimeout(() => cross.classList.remove("hit"), 280);
+  updateStatus();
+}
+function showMiss() {
+  if (!game) return;
+  const rect = game.renderer.measure();
+  spawnFloater("Miss", rect.width / 2, rect.height * 0.46, "note");
+  sfx.play("deny");
+}
 function effect(kind) {
+  sfx.play(
+    kind === "hurt"
+      ? "hurt"
+      : kind === "attack"
+        ? "swing"
+        : kind === "pet"
+          ? "pet"
+          : "pick",
+  );
   if (kind === "hurt") {
     $("damage-vignette").classList.remove("active");
     void $("damage-vignette").offsetWidth;
@@ -95,6 +285,7 @@ function effect(kind) {
 function updateStatus() {
   if (!game || game.mode !== "play") return;
   $("hud-pal-count").textContent = game.pals.length;
+  $("hud-pal-cap").textContent = "/" + (preferences.maxPals || 24);
   $("player-hp").value = game.player.health;
   $("player-health-value").textContent = game.player.health;
   $("pick-label").textContent = game.held ? "Drop" : "Pick";
@@ -103,9 +294,15 @@ function updateStatus() {
     `${game.fps} fps · ${Math.round(game.renderer.stats.triangles / 1000)}k triangles · ${game.pals.length} pals`;
   $("target-badge").hidden = !game.target || !!game.lab;
   if (game.target) {
-    $("target-name").textContent = game.target.data.name;
+    const t = game.target,
+      max = t.manifest.combat.maxHealth || 1,
+      ratio = Math.max(0, Math.min(1, t.data.health / max));
+    $("target-name").textContent = t.data.name;
     $("target-health").textContent =
-      `${Math.round(game.target.data.health)} / ${game.target.manifest.combat.maxHealth} HP · ${game.target.state}`;
+      `${Math.round(t.data.health)} / ${max} HP · ${t.state}`;
+    $("target-hp-fill").style.width = (ratio * 100).toFixed(1) + "%";
+    $("target-badge").dataset.state =
+      t.data.health <= 0 ? "down" : t.aggro ? "angry" : "calm";
   }
   updateLabControls();
 }
@@ -613,14 +810,48 @@ function chooseSpawnAsset() {
   showDialog(
     "sheet",
     "Who is coming over?",
-    `<p>Choose a pal, then set the quantity and behaviour.</p><div class="menu-list" style="margin-top:20px">${menuItem("spawn-training", "Training buddy", "Built-in helper · no model download", "paw")}${assets.map((a) => `<button class="menu-item" data-spawn="${esc(a.id)}">${icon("paw")}<span><strong>${esc(a.manifest.name)}</strong><small>${a.stats.clips} clips · ${size(a.blob.size)} · ${Math.round(a.stats.triangles / 1000)}k triangles</small></span>${icon("chevron", "chevron")}</button>`).join("")}</div><button id="spawn-import" class="button secondary full" style="margin-top:20px">${icon("import")} Import another pal</button>`,
-    { eyebrow: "ADD PALS · CHOOSE A PACKAGE" },
+    `<p>Tap a pal and they turn up somewhere out in the world. Watch the map to see where.</p><div class="menu-list" style="margin-top:20px">${menuItem("spawn-training", "Training buddy", "Built-in helper · no model download", "paw")}${assets.map((a) => `<button class="menu-item" data-spawn="${esc(a.id)}">${icon("paw")}<span><strong>${esc(a.manifest.name)}</strong><small>${a.stats.clips} clips · ${size(a.blob.size)} · ${Math.round(a.stats.triangles / 1000)}k triangles</small></span>${icon("chevron", "chevron")}</button>`).join("")}</div><label class="toggle-row" style="margin-top:18px"><span><strong>Ask for options each time</strong><small>Quantity, size and behaviour before summoning.</small></span><input class="switch" id="spawn-ask" type="checkbox" ${askSpawnOptions ? "checked" : ""}></label><button id="spawn-import" class="button secondary full" style="margin-top:20px">${icon("import")} Import another pal</button>`,
+    { eyebrow: "ADD PALS · TAP TO SUMMON" },
   );
-  $("spawn-training").onclick = () => spawnDialog("builtin-training");
+  const add = (id) => (askSpawnOptions ? spawnDialog(id) : quickSpawn(id));
+  $("spawn-training").onclick = () => add("builtin-training");
   document
     .querySelectorAll("[data-spawn]")
-    .forEach((b) => (b.onclick = () => spawnDialog(b.dataset.spawn)));
+    .forEach((b) => (b.onclick = () => add(b.dataset.spawn)));
+  $("spawn-ask").onchange = () => {
+    askSpawnOptions = $("spawn-ask").checked;
+  };
   $("spawn-import").onclick = () => pickPal(true);
+}
+/* One tap, one pal, no questions asked. */
+async function quickSpawn(id) {
+  const asset =
+    id === "builtin-training"
+      ? { manifest: TRAINING_MANIFEST }
+      : assets.find((a) => a.id === id);
+  if (!asset) {
+    toast("That asset is not available.");
+    return;
+  }
+  closeDialogs();
+  try {
+    await busy("Summoning " + asset.manifest.name, () =>
+      game.spawn(id, 1, {
+        behavior: "roam",
+        scale: 1,
+        retaliate: asset.manifest.behavior.retaliateWhenAttacked !== false,
+      }),
+    );
+    await saveWorld();
+    sfx.play("spawn");
+    banner(
+      asset.manifest.name + " joined the world",
+      "Somewhere out there — check the map.",
+    );
+  } catch (error) {
+    sfx.play("deny");
+    toast(error.message || "That pal could not be added.");
+  }
 }
 function spawnDialog(id) {
   pauseForMenu();
@@ -636,14 +867,14 @@ function spawnDialog(id) {
     body = showDialog(
       "modal",
       "Add " + m.name,
-      `<form id="spawn-form" class="form-stack"><p>New pals will appear on open ground in front of you.</p><div class="form-grid"><label>How many?<input id="spawn-count" type="number" min="1" max="${Math.max(1, preferences.maxPals - game.pals.length)}" step="1" value="1" required></label><label>Behaviour<select id="spawn-behavior">${options(
+      `<form id="spawn-form" class="form-stack"><p>New pals appear on open ground anywhere in the world.</p><div class="form-grid"><label>How many?<input id="spawn-count" type="number" min="1" max="${Math.max(1, preferences.maxPals - game.pals.length)}" step="1" value="1" required></label><label>Behaviour<select id="spawn-behavior">${options(
         [
           ["roam", "Roam naturally"],
           ["follow", "Follow me"],
           ["stay", "Stay in place"],
         ],
         "roam",
-      )}</select></label></div><label><span class="range-value">Size <output id="spawn-size-value">1.0×</output></span><input id="spawn-size" type="range" min="0.5" max="2.5" step="0.1" value="1"></label><label class="toggle-row"><span><strong>Retaliates when attacked</strong><small>Also turn on World → Allow retaliation.</small></span><input class="switch" id="spawn-retaliation" type="checkbox" ${m.behavior.retaliateWhenAttacked ? "checked" : ""}></label><div class="callout">${icon("attack")}<p>Combat animation: <strong>${esc(m.animations.attack)}</strong>. One attack type for this pal.</p></div><div class="dialog-actions"><button type="button" id="spawn-cancel" class="button secondary">Cancel</button><button type="submit" class="button primary">Add to world ${icon("plus")}</button></div></form>`,
+      )}</select></label></div><label><span class="range-value">Size <output id="spawn-size-value">1.0×</output></span><input id="spawn-size" type="range" min="0.5" max="4" step="0.1" value="1"></label><label class="toggle-row"><span><strong>Retaliates when attacked</strong><small>They fight back from the first hit, and never attack first.</small></span><input class="switch" id="spawn-retaliation" type="checkbox" ${m.behavior.retaliateWhenAttacked ? "checked" : ""}></label><div class="callout">${icon("attack")}<p>Combat animation: <strong>${esc(m.animations.attack)}</strong>. One attack type for this pal.</p></div><div class="dialog-actions"><button type="button" id="spawn-cancel" class="button secondary">Cancel</button><button type="submit" class="button primary">Add to world ${icon("plus")}</button></div></form>`,
       { eyebrow: "QUANTITY · SIZE · BEHAVIOUR" },
     );
   $("spawn-size").oninput = () => {
@@ -689,7 +920,7 @@ function inspectPal(p) {
         ["stay", "Stay in place"],
       ],
       d.behavior,
-    )}</select></label><label><span class="range-value">Size <output id="pal-scale-value">${d.scale.toFixed(1)}×</output></span><input id="pal-scale" type="range" min="0.5" max="2.5" step="0.1" value="${d.scale}"></label><label><span class="range-value">Movement speed <output id="pal-speed-value">${d.speed.toFixed(1)}×</output></span><input id="pal-speed" type="range" min="0.5" max="2.5" step="0.1" value="${d.speed}"></label><label><span class="range-value">Roaming radius <output id="pal-radius-value">${d.radius} m</output></span><input id="pal-radius" type="range" min="2" max="30" step="1" value="${d.radius}"></label></div><label class="toggle-row"><span><strong>Retaliates when attacked</strong><small>${game.world.environment.retaliation ? "World retaliation is enabled." : "World retaliation is currently off."}</small></span><input class="switch" id="pal-retaliate" type="checkbox" ${d.retaliate ? "checked" : ""}></label><div class="small-heading">Combat · one attack</div><p class="help-copy">${esc(m.animations.attack)} · ${m.combat.damage} damage · ${m.combat.cooldown}s cooldown</p><div class="button-row" style="margin-top:20px"><button id="pal-revive" class="button secondary">${icon("heart")} Revive</button><button id="pal-recall" class="button secondary">${icon("home")} Recall home</button></div><button id="pal-set-home" class="button quiet full" style="margin-top:10px">${icon("home")} Make this spot their home</button><button id="pal-remove" class="button danger full" style="margin-top:20px">${icon("trash")} Remove from world</button>`,
+    )}</select></label><label><span class="range-value">Size <output id="pal-scale-value">${d.scale.toFixed(1)}×</output></span><input id="pal-scale" type="range" min="0.5" max="4" step="0.1" value="${d.scale}"></label><label><span class="range-value">Movement speed <output id="pal-speed-value">${d.speed.toFixed(1)}×</output></span><input id="pal-speed" type="range" min="0.5" max="2.5" step="0.1" value="${d.speed}"></label><label><span class="range-value">Roaming radius <output id="pal-radius-value">${d.radius} m</output></span><input id="pal-radius" type="range" min="2" max="60" step="1" value="${d.radius}"></label></div><label class="toggle-row"><span><strong>Retaliates when attacked</strong><small>Fights back from the first hit. Never attacks first.</small></span><input class="switch" id="pal-retaliate" type="checkbox" ${d.retaliate ? "checked" : ""}></label><div class="small-heading">Combat · one attack</div><p class="help-copy">${esc(m.animations.attack)} · ${m.combat.damage} damage · ${m.combat.cooldown}s cooldown</p><div class="button-row" style="margin-top:20px"><button id="pal-revive" class="button secondary">${icon("heart")} Revive</button><button id="pal-recall" class="button secondary">${icon("home")} Recall home</button></div><button id="pal-set-home" class="button quiet full" style="margin-top:10px">${icon("home")} Make this spot their home</button><button id="pal-remove" class="button danger full" style="margin-top:20px">${icon("trash")} Remove from world</button>`,
     { eyebrow: "CREATURE SETTINGS · THIS INSTANCE" },
   );
   $("pal-animation-lab").onclick = () => enterLab(p);
@@ -774,7 +1005,7 @@ function worldSettings() {
       .padStart(
         2,
         "0",
-      )}</output></span><input id="day-time" type="range" min="0" max="23.95" step="0.05" value="${e.time}"></label></div><label class="toggle-row"><span><strong>Let the day drift by</strong><small>A gentle day / night cycle while you play.</small></span><input class="switch" id="day-cycle" type="checkbox" ${e.cycle ? "checked" : ""}></label><label class="toggle-row"><span><strong>Allow retaliation</strong><small>Only pals with retaliation enabled will fight back when attacked. They never attack first.</small></span><input class="switch" id="world-retaliation" type="checkbox" ${e.retaliation ? "checked" : ""}></label><div class="callout" style="margin:22px 0">${icon("shield")}<p>Turning this off immediately stops hostile behaviour. Attacks can still reduce health so you can test hit reactions.</p></div><div class="menu-list">${menuItem("world-home-here", "Set my home here", "Use your current spot as the return-home point", "home")}${menuItem("world-revive-all", "Revive every pal", "Restore creature health and clear aggression", "heart")}${menuItem("world-save-now", "Save now", "Keep the latest world changes", "save")}${menuItem("world-performance", "App settings", "Controls, UI motion and mobile quality", "settings")}</div>`,
+      )}</output></span><input id="day-time" type="range" min="0" max="23.95" step="0.05" value="${e.time}"></label></div><label class="toggle-row"><span><strong>Let the day drift by</strong><small>A gentle day / night cycle while you play.</small></span><input class="switch" id="day-cycle" type="checkbox" ${e.cycle ? "checked" : ""}></label><label class="toggle-row"><span><strong>Pals fight back</strong><small>Every pal here defends itself from the very first hit. They never attack first.</small></span><input class="switch" id="world-retaliation" type="checkbox" ${e.retaliation ? "checked" : ""}></label><div class="callout" style="margin:22px 0">${icon("shield")}<p>Turning this off calms every pal in this world instantly. Attacks still reduce health so you can test hit reactions.</p></div><div class="menu-list">${menuItem("world-home-here", "Set my home here", "Use your current spot as the return-home point", "home")}${menuItem("world-revive-all", "Revive every pal", "Restore creature health and clear aggression", "heart")}${menuItem("world-save-now", "Save now", "Keep the latest world changes", "save")}${menuItem("world-performance", "App settings", "Controls, UI motion and mobile quality", "settings")}</div>`,
     { eyebrow: "WORLD SETTINGS" },
   );
   $("day-time").oninput = () => {
@@ -792,15 +1023,19 @@ function worldSettings() {
     persistSoon();
   };
   $("world-retaliation").onchange = () => {
+    /* Retaliation is a per-pal switch now, so this just arms or disarms every
+     * pal currently in the world. */
     e.retaliation = $("world-retaliation").checked;
-    if (!e.retaliation)
-      for (const p of game.pals) {
+    for (const p of game.pals) {
+      p.data.retaliate = e.retaliation;
+      if (!e.retaliation) {
         p.aggro = false;
         if (p.state === "attack") {
           p.state = "idle";
           p.clip("idle");
         }
       }
+    }
     persistSoon();
   };
   $("world-home-here").onclick = () => {
@@ -826,20 +1061,21 @@ function settingsDialog() {
     "Find your flow",
     `<div class="form-stack"><label>Rendering quality<select id="pref-quality">${options(
       [
-        ["economy", "Economy · 30 fps target"],
-        ["balanced", "Balanced · 45 fps target"],
-        ["clear", "Clear · 60 fps target"],
+        ["economy", "Performance · 1× resolution"],
+        ["balanced", "HD · 1.5× resolution"],
+        ["clear", "HD+ · 2.25× resolution"],
+        ["ultra", "Ultra HD · 3× resolution"],
       ],
       preferences.quality,
-    )}</select><small>Quality controls render resolution and the frame-rate cap. Actual performance depends on your phone and models.</small></label><label>Maximum pals per world<select id="pref-limit">${options(
+    )}</select><small>Every tier draws at your screen's full refresh rate — 60 fps or higher. This only changes how sharp the image is, so drop a tier if the frame rate dips.</small></label><label>Maximum pals per world<select id="pref-limit">${options(
       [
-        [6, "6 · lightest"],
-        [12, "12 · recommended"],
-        [18, "18 · more demanding"],
-        [24, "24 · high-end devices"],
+        [12, "12 · lightest"],
+        [24, "24 · recommended"],
+        [36, "36 · more demanding"],
+        [48, "48 · high-end devices"],
       ],
       preferences.maxPals,
-    )}</select><small>Existing pals are never deleted when you lower this limit. A separate 650k creature-triangle budget protects performance.</small></label><label><span class="range-value">Look sensitivity <output id="pref-sensitivity-value">${preferences.sensitivity.toFixed(1)}×</output></span><input id="pref-sensitivity" type="range" min="0.4" max="2.5" step="0.1" value="${preferences.sensitivity}"></label></div><label class="toggle-row"><span><strong>Invert vertical look</strong><small>Drag up to look down.</small></span><input class="switch" type="checkbox" id="pref-invert" ${preferences.invertY ? "checked" : ""}></label><label class="toggle-row"><span><strong>Reduce interface motion</strong><small>Shorter page, menu and button transitions. Your device's reduced-motion setting is also respected.</small></span><input class="switch" type="checkbox" id="pref-motion" ${preferences.reduceMotion ? "checked" : ""}></label><label class="toggle-row"><span><strong>Show performance stats</strong><small>Frame rate, triangle count and pal count.</small></span><input class="switch" type="checkbox" id="pref-stats" ${preferences.showStats ? "checked" : ""}></label><div class="callout" style="margin:22px 0">${icon("save")}<p>All projects live on this device. Export backups before clearing app data, switching phones or uninstalling.</p></div><div class="button-row"><button id="pref-backup-guide" class="button secondary">${icon("archive")} Backup help</button><button id="pref-done" class="button primary">Done ${icon("check")}</button></div>`,
+    )}</select><small>Existing pals are never deleted when you lower this limit. A 6M creature-triangle budget still protects performance.</small></label><label><span class="range-value">Look sensitivity <output id="pref-sensitivity-value">${preferences.sensitivity.toFixed(1)}×</output></span><input id="pref-sensitivity" type="range" min="0.4" max="2.5" step="0.1" value="${preferences.sensitivity}"></label></div><label class="toggle-row"><span><strong>Invert vertical look</strong><small>Drag up to look down.</small></span><input class="switch" type="checkbox" id="pref-invert" ${preferences.invertY ? "checked" : ""}></label><label class="toggle-row"><span><strong>Reduce interface motion</strong><small>Shorter page, menu and button transitions. Your device's reduced-motion setting is also respected.</small></span><input class="switch" type="checkbox" id="pref-motion" ${preferences.reduceMotion ? "checked" : ""}></label><label class="toggle-row"><span><strong>Show performance stats</strong><small>Frame rate, triangle count and pal count.</small></span><input class="switch" type="checkbox" id="pref-stats" ${preferences.showStats ? "checked" : ""}></label><label class="toggle-row"><span><strong>Sound effects</strong><small>Taps, hits and summon chimes, generated on the device. Nothing is downloaded.</small></span><input class="switch" type="checkbox" id="pref-sound" ${preferences.sound !== false ? "checked" : ""}></label><label class="toggle-row"><span><strong>Show the map</strong><small>Live radar with every pal on it while you play.</small></span><input class="switch" type="checkbox" id="pref-minimap" ${preferences.minimap !== false ? "checked" : ""}></label><div class="callout" style="margin:22px 0">${icon("save")}<p>All projects live on this device. Export backups before clearing app data, switching phones or uninstalling.</p></div><div class="button-row"><button id="pref-backup-guide" class="button secondary">${icon("archive")} Backup help</button><button id="pref-done" class="button primary">Done ${icon("check")}</button></div>`,
     { eyebrow: "CONTROLS · PERFORMANCE · SMOOTH UI" },
   );
   const apply = attempt(async () => {
@@ -851,6 +1087,8 @@ function settingsDialog() {
       invertY: $("pref-invert").checked,
       reduceMotion: $("pref-motion").checked,
       showStats: $("pref-stats").checked,
+      sound: $("pref-sound").checked,
+      minimap: $("pref-minimap").checked,
     };
     $("pref-sensitivity-value").textContent =
       preferences.sensitivity.toFixed(1) + "×";
@@ -863,6 +1101,8 @@ function settingsDialog() {
     "pref-invert",
     "pref-motion",
     "pref-stats",
+    "pref-sound",
+    "pref-minimap",
   ])
     $(id).onchange = apply;
   $("pref-sensitivity").oninput = apply;
@@ -875,6 +1115,9 @@ function settingsDialog() {
 function applyPreferences() {
   document.body.dataset.reducedMotion = String(!!preferences.reduceMotion);
   document.body.dataset.quality = preferences.quality;
+  sfx.setEnabled(preferences.sound !== false);
+  const panel = $("minimap-panel");
+  if (panel) panel.hidden = preferences.minimap === false;
   game?.configure(preferences);
 }
 function enterLab(p) {
@@ -1012,6 +1255,8 @@ async function init() {
     game = new Game($("scene"), {
       notice: toast,
       effect,
+      damage: showDamage,
+      miss: showMiss,
       change: persistSoon,
       status: updateStatus,
       inspect: inspectPal,
@@ -1079,10 +1324,13 @@ async function init() {
   if (game) {
     game.controls.bindJoystick($("joystick"), $("joystick-knob"));
     $("sprint-lock").onclick = () => {
-      game.controls.sprint = !game.controls.sprint;
-      $("sprint-lock").setAttribute(
-        "aria-pressed",
-        String(game.controls.sprint),
+      // Auto-run is on by default; this only turns it off for slow strolling.
+      const on = !game.controls.autoSprint;
+      game.controls.autoSprint = on;
+      $("sprint-lock").setAttribute("aria-pressed", String(on));
+      game.controls.paintSprint?.();
+      toast(
+        on ? "Auto-run on." : "Auto-run off. Push the stick out to sprint.",
       );
     };
     for (const action of ["attack", "pick", "pet", "inspect"])

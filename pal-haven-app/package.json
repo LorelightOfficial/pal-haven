@@ -1,6 +1,6 @@
 {
   "name": "pal-haven",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Offline mobile creature-world sandbox with an ARM64 Android APK workflow",
   "type": "module",

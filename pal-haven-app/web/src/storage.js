@@ -63,7 +63,7 @@ export const defaultSettings = () => ({
   sensitivity: 1,
   invertY: false,
   showStats: false,
-  maxPals: 12,
+  maxPals: 24,
 });
 export const newWorld = (name = "Meadow home", type = "meadow") => ({
   id: uid(),
@@ -75,7 +75,7 @@ export const newWorld = (name = "Meadow home", type = "meadow") => ({
   width: 80,
   player: { position: [0, 0, 10], yaw: Math.PI, pitch: -0.03, health: 100 },
   pals: [],
-  environment: { time: 10.5, cycle: false, retaliation: false },
+  environment: { time: 10.5, cycle: false, retaliation: true },
   home: [0, 0, 3],
 });
 export async function createWorld(world, landscape) {
@@ -176,14 +176,14 @@ export function sanitizeWorld(raw, assetIds) {
       p.health < 0 ||
       p.health > 10000 ||
       !Number.isFinite(p.scale) ||
-      p.scale < 0.25 ||
-      p.scale > 3 ||
+      p.scale < 0.1 ||
+      p.scale > 8 ||
       !Number.isFinite(p.speed) ||
-      p.speed < 0.25 ||
-      p.speed > 3 ||
+      p.speed < 0.1 ||
+      p.speed > 8 ||
       !Number.isFinite(p.radius) ||
-      p.radius < 1 ||
-      p.radius > 35 ||
+      p.radius < 0.5 ||
+      p.radius > 200 ||
       !["roam", "follow", "stay"].includes(p.behavior) ||
       typeof p.retaliate !== "boolean"
     )

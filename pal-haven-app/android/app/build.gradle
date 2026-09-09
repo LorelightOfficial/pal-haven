@@ -13,7 +13,7 @@ android {
         minSdk 26
         targetSdk 35
         versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
-        versionName '0.1.0'
+        versionName '0.3.0'
         manifestPlaceholders = [appLabel: 'Pal Haven']
     }
     // One ARM64-v8a APK output. WebView supplies the device-native renderer.
