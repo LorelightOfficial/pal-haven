@@ -1,0 +1,42 @@
+
+> pal-haven@0.1.0 test
+> node --test tests/*.test.mjs
+
+✔ matrix multiplication and inverse (1.360857ms)
+✔ camera coordinate orientation (0.232428ms)
+✔ quaternion shortest-path interpolation (0.193861ms)
+✔ GLB geometry, skin and animation parsing (2.737761ms)
+✔ animation updates bone pose (1.282746ms)
+✔ one-shot animation clamps final frame (0.672776ms)
+✔ STEP keyframes hold (0.735882ms)
+✔ CUBICSPLINE Hermite interpolation (0.19438ms)
+✔ GLB bad headers are rejected (0.566088ms)
+✔ GLB external URLs are rejected (0.511683ms)
+✔ required compression extensions are rejected (0.388838ms)
+✔ cyclic node graph is rejected (0.434381ms)
+✔ duplicate clip names are rejected (0.459993ms)
+✔ accessor bounds are enforced (0.337775ms)
+✔ joint references are validated (0.281802ms)
+✔ only one combat attack is auto-mapped (0.311555ms)
+✔ manifest defaults are peaceful (0.927897ms)
+✔ attack array is not a valid mapping (0.477035ms)
+✔ mandatory mappings are enforced (0.902724ms)
+✔ manifest paths and scale are bounded (0.400725ms)
+✔ ZIP directory can be read without inflation (0.449532ms)
+✔ ZIP traversal and duplicate names are blocked (0.235054ms)
+✔ ZIP expansion and truncation limits (0.244455ms)
+✔ encrypted ZIP entries are rejected (0.175981ms)
+✔ ASCII STL triangles are parsed (0.433419ms)
+✔ collision blocks crossing a wall (1.248634ms)
+✔ A* routes around obstacles (7.488202ms)
+✔ terrain rasterization supports flat ground (0.990939ms)
+✔ retaliation needs both switches and a living pal (2.216862ms)
+✔ backup validates positions and world type (0.331991ms)
+ℹ tests 30
+ℹ suites 0
+ℹ pass 30
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 101.097443

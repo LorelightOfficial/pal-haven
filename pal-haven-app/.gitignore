@@ -1,0 +1,48 @@
+# Android / Gradle
+.gradle/
+**/.gradle/
+**/build/
+android/local.properties
+local.properties
+.externalNativeBuild/
+.cxx/
+
+# Never commit signing keys, passwords, or local environment files
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+keystore.properties
+signing.properties
+.env
+.env.*
+!.env.example
+secrets/
+
+# Generated output / local test state
+node_modules/
+coverage/
+playwright-report/
+test-results/
+qa-local/
+*.log
+*.apk
+*.aab
+*.world.zip
+*.pal.zip
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.iml
+__pycache__/
+*.pyc
+
+# Encoded keystores are secrets too
+*.base64
+*.b64
+keystore-base64.txt

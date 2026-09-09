@@ -1,0 +1,29 @@
+PAL HAVEN — STAGE 1 APP SOURCE
+
+This is the APP SOURCE ZIP, not an already compiled APK and not a new pal model.
+
+1. Extract this ZIP.
+2. Upload the CONTENTS of pal-haven-app to the root of your GitHub repository.
+   The repository root must contain .github, android, web, package.json and README.md.
+   Uploading this ZIP file itself will not run a build. Do not hide the source one folder deeper.
+3. Optional: add the four signing secrets in docs/ANDROID-BUILD.md.
+4. Push a commit, or open Actions > Build ARM64 APK > Run workflow.
+5. Download Pal-Haven-arm64-v8a-APK from the completed run's Artifacts.
+   Extract the artifact ZIP, then install its APK on your ARM64 Android phone.
+
+NO SECRETS = one debug ARM64-v8a APK.
+ALL FOUR SECRETS = one signed release ARM64-v8a APK.
+NO AAB, ARMv7 or x86 output is requested.
+
+Entering a world forces Android into sensor-landscape orientation.
+The in-world menus and animation lab remain landscape. Leaving restores normal orientation.
+
+The app includes smooth UI transitions, not just animated creatures.
+
+Read README.md for features and honest limitations.
+Read docs/ANDROID-BUILD.md for the JKS setup.
+Read docs/QA-REPORT.md for what was actually tested.
+Read docs/PAL-PACKAGE-V1.md for the import format.
+
+The separate Stage 2 Prompt Kit ZIP is for making your future creature packages.
+Your previous 40 MB Lamball archive is NOT duplicated in this app source.

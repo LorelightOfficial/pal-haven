@@ -1,0 +1,49 @@
+{
+  "format": "pal-haven/pal",
+  "schemaVersion": 1,
+  "id": "your-pal",
+  "name": "Your Pal",
+  "description": "Replace with your creature description.",
+  "creator": "Your name",
+  "license": "State the actual rights or permitted use; do not invent a license.",
+  "model": "model.glb",
+  "units": "meters",
+  "upAxis": "+Y",
+  "forwardAxis": "+Z",
+  "scale": 1,
+  "animations": {
+    "idle": "Idle",
+    "walk": "Walk",
+    "run": "Run",
+    "attack": "Attack",
+    "hit": "Hit",
+    "faint": "Faint",
+    "getUp": "Get Up",
+    "held": "Held",
+    "pet": "Pet",
+    "sleep": "Sleep",
+    "eat": "Eat",
+    "happy": "Happy",
+    "jump": "Jump",
+    "sit": "Sit"
+  },
+  "physics": {
+    "radius": 0.4,
+    "height": 1,
+    "groundOffset": 0
+  },
+  "behavior": {
+    "canBePickedUp": true,
+    "retaliateWhenAttacked": false,
+    "walkSpeed": 1.1,
+    "runSpeed": 2.8,
+    "wanderRadius": 8
+  },
+  "combat": {
+    "maxHealth": 100,
+    "damage": 8,
+    "cooldown": 1.8,
+    "range": 1.3,
+    "hitTime": 0.45
+  }
+}

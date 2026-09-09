@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Pal Haven creature manifest v1",
+  "type": "object",
+  "required": [
+    "format",
+    "schemaVersion",
+    "id",
+    "name",
+    "model",
+    "units",
+    "upAxis",
+    "forwardAxis",
+    "scale",
+    "animations",
+    "physics",
+    "behavior",
+    "combat"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "pal-haven/pal"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "creator": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "license": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "model": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:\\\\|:|\\.\\./))[A-Za-z0-9_./-]+\\.glb$",
+      "maxLength": 255
+    },
+    "units": {
+      "const": "meters"
+    },
+    "upAxis": {
+      "const": "+Y"
+    },
+    "forwardAxis": {
+      "const": "+Z"
+    },
+    "scale": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 20,
+      "default": 1
+    },
+    "animations": {
+      "type": "object",
+      "required": ["idle", "walk", "attack"],
+      "additionalProperties": false,
+      "properties": {
+        "idle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "walk": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "run": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "attack": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "hit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "faint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "getUp": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "held": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "pet": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sleep": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "eat": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "happy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "jump": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "physics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["radius", "height", "groundOffset"],
+      "properties": {
+        "radius": {
+          "type": "number",
+          "minimum": 0.08,
+          "maximum": 3
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 12
+        },
+        "groundOffset": {
+          "type": "number",
+          "minimum": -10,
+          "maximum": 10
+        }
+      }
+    },
+    "behavior": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canBePickedUp",
+        "retaliateWhenAttacked",
+        "walkSpeed",
+        "runSpeed",
+        "wanderRadius"
+      ],
+      "properties": {
+        "canBePickedUp": {
+          "type": "boolean"
+        },
+        "retaliateWhenAttacked": {
+          "type": "boolean",
+          "default": false
+        },
+        "walkSpeed": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 6
+        },
+        "runSpeed": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 12
+        },
+        "wanderRadius": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 35
+        }
+      }
+    },
+    "combat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxHealth", "damage", "cooldown", "range", "hitTime"],
+      "properties": {
+        "maxHealth": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "damage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "cooldown": {
+          "type": "number",
+          "minimum": 0.4,
+          "maximum": 20
+        },
+        "range": {
+          "type": "number",
+          "minimum": 0.2,
+          "maximum": 5
+        },
+        "hitTime": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    }
+  }
+}

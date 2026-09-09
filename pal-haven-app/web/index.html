@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#244d40" />
+    <meta
+      name="description"
+      content="Pal Haven — your private, offline creature-world sandbox."
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' blob: data:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' blob: data:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <title>Pal Haven · Your little world</title>
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="vendor/jszip.min.js" defer></script>
+    <script type="module" src="src/app.js"></script>
+  </head>
+  <body>
+    <div id="app-shell">
+      <header class="app-header">
+        <a href="#worlds" class="brand" aria-label="Pal Haven home"
+          ><span class="brand-mark" aria-hidden="true"
+            ><svg viewBox="0 0 32 32">
+              <path d="M8 21c0-4 5-9 8-9s8 5 8 9-4 4-8 3-8 1-8-3Z" />
+              <ellipse
+                cx="7"
+                cy="11"
+                rx="3"
+                ry="4"
+                transform="rotate(-25 7 11)"
+              />
+              <ellipse cx="14" cy="7" rx="3" ry="4" />
+              <ellipse
+                cx="22"
+                cy="8"
+                rx="3"
+                ry="4"
+                transform="rotate(15 22 8)"
+              />
+              <ellipse
+                cx="27"
+                cy="15"
+                rx="2.5"
+                ry="3.5"
+                transform="rotate(30 27 15)"
+              /></svg></span
+          ><span>Pal Haven<small>YOUR LITTLE WORLD</small></span></a
+        >
+        <nav class="top-nav" aria-label="Main navigation">
+          <button data-route="worlds" class="active">Worlds</button
+          ><button data-route="library">Pal library</button
+          ><button data-route="guide">Field guide</button>
+        </nav>
+        <div class="header-actions">
+          <span class="offline-label"><i></i> Local & offline</span
+          ><button
+            id="app-settings"
+            class="icon-button"
+            aria-label="App settings"
+          ></button>
+        </div>
+      </header>
+      <main id="hub" class="hub">
+        <section id="worlds-route" class="route">
+          <div class="hero">
+            <div class="hero-copy">
+              <div class="eyebrow">
+                <span class="little-star">✳</span> A PLACE TO BRING THEM TO LIFE
+              </div>
+              <h1>Small worlds.<br /><span>Endless possibilities.</span></h1>
+              <p>
+                A home for the creatures you create.<br class="desktop-break" />
+                Bring your pals, build a world, and see what happens.
+              </p>
+              <div class="hero-actions">
+                <button id="create-world" class="button primary">
+                  Create a world <span data-icon="plus"></span></button
+                ><button id="import-pal-hero" class="button secondary">
+                  <span data-icon="import"></span> Import a pal
+                </button>
+              </div>
+              <div class="hero-footnote">
+                <span data-icon="shield"></span> Your files. Your worlds. No
+                cloud required.
+              </div>
+            </div>
+            <div id="preview-card" class="preview-card">
+              <div id="preview-slot">
+                <canvas
+                  id="scene"
+                  aria-label="Live three-dimensional world preview"
+                  tabindex="0"
+                ></canvas>
+              </div>
+              <div class="preview-tag"><i></i> LIVE WORLD PREVIEW</div>
+              <div class="preview-caption">
+                <div>
+                  <small>ROOM TO ROAM</small
+                  ><strong>A little corner of calm.</strong>
+                </div>
+                <button
+                  id="quick-enter"
+                  class="round-button"
+                  aria-label="Enter your first world"
+                >
+                  <span data-icon="arrowUpRight"></span>
+                </button>
+              </div>
+              <div id="webgl-error" class="webgl-error" hidden>
+                <h2>3D needs WebGL 2</h2>
+                <p>
+                  Update Chrome or Android System WebView and enable hardware
+                  acceleration.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="section-heading">
+            <div>
+              <h2>Your worlds <span id="world-count" class="count">0</span></h2>
+              <p>Pick up where you left off, or start somewhere new.</p>
+            </div>
+            <button id="restore-world" class="button quiet">
+              <span data-icon="archive"></span> Restore world
+            </button>
+          </div>
+          <div id="world-grid" class="world-grid" aria-live="polite">
+            <div class="skeleton"></div>
+          </div>
+          <div class="next-step">
+            <div class="step-number">01</div>
+            <div>
+              <strong>Build the world. Then bring the characters.</strong>
+              <p>
+                Import a landscape, add as many pals as your device can
+                comfortably run, and test everything in one place.
+              </p>
+            </div>
+            <button class="text-button" data-route="guide">
+              How it works <span data-icon="arrowRight"></span>
+            </button>
+          </div>
+        </section>
+        <section id="library-route" class="route" hidden>
+          <div class="route-heading">
+            <div>
+              <div class="eyebrow">READY FOR THEIR NEXT ADVENTURE</div>
+              <h1>Your pal library.</h1>
+              <p>Import once. Give them a home in any world.</p>
+            </div>
+            <button id="import-pal-library" class="button primary">
+              <span data-icon="plus"></span> Import pal
+            </button>
+          </div>
+          <div id="library-grid" class="library-grid"></div>
+          <div class="format-note">
+            <span data-icon="package"></span>
+            <div>
+              <strong>Small packages. Big personalities.</strong>
+              <p>
+                Use .pal.zip or animated .glb. Your previous recovery ZIP is
+                also supported. STL and OBJ must be rigged and animated before
+                becoming a pal.
+              </p>
+            </div>
+          </div>
+        </section>
+        <section id="guide-route" class="route guide" hidden>
+          <div class="eyebrow">A LITTLE HELP GETTING STARTED</div>
+          <h1>The field guide.</h1>
+          <p class="lead">
+            One app for your worlds, your pals, and all the things you want to
+            try.
+          </p>
+          <div class="guide-grid">
+            <article class="guide-card">
+              <span class="guide-number">01 / MAKE A HOME</span>
+              <h2>Choose your world.</h2>
+              <p>
+                Start in the meadow or testing courtyard. Or import a static GLB
+                / STL landscape, choose its width and up axis, then save it as a
+                separate project.
+              </p>
+            </article>
+            <article class="guide-card">
+              <span class="guide-number">02 / BRING YOUR PALS</span>
+              <h2>A library that travels.</h2>
+              <p>
+                Import an animated creature ZIP or GLB. Confirm its name and
+                animation mapping, then choose the quantity, size and behaviour
+                when adding it to a world.
+              </p>
+            </article>
+            <article class="guide-card">
+              <span class="guide-number">03 / TRY EVERYTHING</span>
+              <h2>Play. Inspect. Repeat.</h2>
+              <p>
+                Walk around in first person, pick up a pal, pet it or test an
+                attack. Open a pal's Animation lab to isolate every clip without
+                the world running.
+              </p>
+            </article>
+          </div>
+          <div class="guide-controls">
+            <h2>Make yourself at home.</h2>
+            <div>
+              <p>
+                <strong>On mobile</strong><br />Left joystick moves. Drag the
+                scene to look. Sprint lock keeps running enabled. Use Attack,
+                Pick, Pet and Inspect on the right.
+              </p>
+              <p>
+                <strong>With a keyboard</strong><br />W A S D move · drag /
+                arrow keys look · Shift runs · Space attacks · E picks / drops ·
+                F pets · Q inspects · Escape opens the menu.
+              </p>
+            </div>
+          </div>
+          <div class="callout">
+            <span data-icon="shield"></span>
+            <div>
+              <strong>A peaceful world by default.</strong>
+              <p>
+                Retaliation requires both World → Allow retaliation and the
+                creature's own retaliation setting. Pals don't attack first. One
+                mapped attack per creature is used for combat.
+              </p>
+            </div>
+          </div>
+          <details>
+            <summary>What is saved?</summary>
+            <p>
+              Worlds, creature placements, player position, health and settings
+              save on this device. Asset blobs are stored once in the library.
+              Export world backups before uninstalling or clearing browser/app
+              data. Automatic save is every five seconds, on menu changes, and
+              when leaving a world.
+            </p>
+          </details>
+          <details>
+            <summary>Which files can I import?</summary>
+            <p>
+              Creatures: .pal.zip, an embedded animated GLB, or a recovery ZIP
+              containing exactly one GLB. Landscapes: static GLB or binary/ASCII
+              STL. Plain GLB with embedded PNG/JPEG textures is supported;
+              Draco, Meshopt, KTX2, cloth and arbitrary shader extensions are
+              not. See the source documentation for exact limits.
+            </p>
+          </details>
+          <details>
+            <summary>What is Stage 2?</summary>
+            <p>
+              The separate prompt kit tells a tool-capable model how to turn
+              your STL/OBJ/GLB into a rigged, optimized creature package that
+              this app recognizes. This app imports completed characters; it
+              does not generate rigs or animations from an STL.
+            </p>
+          </details>
+          <details>
+            <summary>How does terrain movement work?</summary>
+            <p>
+              Pals use a lightweight ground grid, obstacle steering and A*
+              paths. Use single-surface outdoor terrain with gentle slopes.
+              Multi-level buildings, caves, moving platforms, swimming, ragdolls
+              and production physics are not part of this version.
+            </p>
+          </details>
+          <button id="show-controls-settings" class="button secondary">
+            <span data-icon="settings"></span> Controls & performance
+          </button>
+        </section>
+        <footer class="hub-footer">
+          <span>PAL HAVEN <span class="muted">/</span> WORLD SANDBOX</span
+          ><span
+            >Stage 1 · v0.1.0 <span class="muted">/</span> Made for your own
+            creations.</span
+          >
+        </footer>
+      </main>
+    </div>
+    <section
+      id="play-screen"
+      class="play-screen"
+      hidden
+      aria-label="First-person world sandbox"
+    >
+      <div id="game-slot"></div>
+      <div class="game-top">
+        <div class="world-identity">
+          <button
+            id="world-menu"
+            class="hud-button square"
+            aria-label="World menu"
+          >
+            <span data-icon="menu"></span>
+          </button>
+          <div>
+            <strong id="hud-world-name">Your world</strong
+            ><small id="save-indicator">Saved on device</small>
+          </div>
+        </div>
+        <div class="game-top-actions">
+          <button id="manage-pals" class="hud-button">
+            <span data-icon="paw"></span><span class="hud-label">Pals</span
+            ><b id="hud-pal-count">0</b></button
+          ><button id="world-settings" class="hud-button">
+            <span data-icon="sliders"></span
+            ><span class="hud-label">World</span></button
+          ><button
+            id="pause-game"
+            class="hud-button square"
+            aria-label="Pause world"
+          >
+            <span data-icon="pause"></span>
+          </button>
+        </div>
+      </div>
+      <div id="performance" class="performance" hidden></div>
+      <div id="crosshair" class="crosshair" aria-hidden="true"><i></i></div>
+      <div id="target-badge" class="target-badge" hidden>
+        <strong id="target-name"></strong><span id="target-health"></span>
+      </div>
+      <div
+        id="interaction-effect"
+        class="interaction-effect"
+        aria-hidden="true"
+      ></div>
+      <div
+        id="damage-vignette"
+        class="damage-vignette"
+        aria-hidden="true"
+      ></div>
+      <div id="game-controls" class="game-controls">
+        <div class="move-controls">
+          <button id="sprint-lock" class="sprint-button" aria-pressed="false">
+            <span data-icon="run"></span> Sprint lock
+            <span class="sprint-dot"></span>
+          </button>
+          <div id="joystick" class="joystick" aria-label="Movement joystick">
+            <span class="joystick-guide">MOVE</span>
+            <div id="joystick-knob" class="joystick-knob"></div>
+          </div>
+        </div>
+        <div class="player-health">
+          <span data-icon="heart"></span
+          ><progress
+            id="player-hp"
+            value="100"
+            max="100"
+            aria-label="Player health"
+          ></progress
+          ><span id="player-health-value">100</span>
+        </div>
+        <div class="action-controls">
+          <div class="minor-actions">
+            <button id="action-inspect" class="action-button small">
+              <span data-icon="inspect"></span><span>Inspect</span></button
+            ><button id="action-pet" class="action-button small">
+              <span data-icon="heart"></span><span>Pet</span>
+            </button>
+          </div>
+          <div class="major-actions">
+            <button id="action-pick" class="action-button">
+              <span data-icon="hand"></span
+              ><span id="pick-label">Pick</span></button
+            ><button id="action-attack" class="action-button attack">
+              <span data-icon="attack"></span><span>Attack</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div id="look-hint" class="look-hint">Drag to look around</div>
+      <section id="lab-controls" class="lab-controls" hidden>
+        <div class="lab-header">
+          <div>
+            <span class="eyebrow">ANIMATION LAB · WORLD PAUSED</span>
+            <h2 id="lab-pal-name"></h2>
+          </div>
+          <button id="exit-lab" class="button secondary">
+            <span data-icon="close"></span> Back to world
+          </button>
+        </div>
+        <div class="lab-panel">
+          <div class="lab-main">
+            <label>Animation<select id="lab-clip"></select></label>
+            <div class="lab-play-row">
+              <button
+                id="lab-play"
+                class="button primary"
+                aria-label="Pause animation"
+              >
+                <span data-icon="pause"></span></button
+              ><label class="timeline-label"
+                ><span id="lab-time">0.00 / 0.00 s</span
+                ><input
+                  type="range"
+                  id="lab-timeline"
+                  min="0"
+                  max="1000"
+                  value="0"
+                  aria-label="Animation timeline" /></label
+              ><label class="compact-label"
+                >Speed<select id="lab-speed">
+                  <option value="0.25">0.25×</option>
+                  <option value="0.5">0.5×</option>
+                  <option value="1" selected>1×</option>
+                  <option value="1.5">1.5×</option>
+                  <option value="2">2×</option>
+                </select></label
+              >
+            </div>
+          </div>
+          <div class="lab-options">
+            <label class="check"
+              ><input id="lab-loop" type="checkbox" checked /> Loop</label
+            ><label class="check"
+              ><input id="lab-rig" type="checkbox" /> Rig</label
+            ><label class="check"
+              ><input id="lab-wire" type="checkbox" /> Wireframe</label
+            ><label class="zoom-label"
+              >Zoom
+              <input
+                id="lab-zoom"
+                type="range"
+                min="1"
+                max="12"
+                step="0.1"
+                value="3"
+                aria-label="Animation lab camera distance"
+            /></label>
+          </div>
+          <details id="morph-details" hidden>
+            <summary>Expressions / morph targets</summary>
+            <div id="morph-controls"></div>
+            <button id="reset-morphs" class="text-button">
+              Use animated expressions
+            </button>
+          </details>
+        </div>
+        <div class="lab-hint">
+          Drag the scene to orbit · use Zoom to frame your pal
+        </div>
+      </section>
+    </section>
+    <dialog id="modal" class="modal">
+      <header class="dialog-heading">
+        <div>
+          <span id="modal-eyebrow" class="eyebrow"></span>
+          <h2 id="modal-title"></h2>
+        </div>
+        <button id="close-modal" class="icon-button" aria-label="Close dialog">
+          <span data-icon="close"></span>
+        </button>
+      </header>
+      <div id="modal-body" class="dialog-body"></div>
+    </dialog>
+    <dialog id="sheet" class="sheet">
+      <header class="dialog-heading">
+        <div>
+          <span id="sheet-eyebrow" class="eyebrow"></span>
+          <h2 id="sheet-title"></h2>
+        </div>
+        <button id="close-sheet" class="icon-button" aria-label="Close menu">
+          <span data-icon="close"></span>
+        </button>
+      </header>
+      <div id="sheet-body" class="dialog-body"></div>
+    </dialog>
+    <dialog
+      id="busy"
+      class="busy"
+      hidden
+      aria-label="Preparing app data"
+      aria-live="polite"
+    >
+      <div class="busy-card">
+        <span class="loading-orbit"><i></i><i></i><i></i></span>
+        <h2 id="busy-title">Preparing your world</h2>
+        <p id="busy-subtitle">Keeping everything on your device.</p>
+        <div class="loading-line"></div>
+      </div>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <input
+      id="pal-file"
+      type="file"
+      accept=".zip,.glb,application/zip,model/gltf-binary,application/octet-stream"
+      hidden
+    /><input
+      id="world-file"
+      type="file"
+      accept=".zip,application/zip"
+      hidden
+    /><input
+      id="landscape-file"
+      type="file"
+      accept=".glb,.stl,model/gltf-binary,model/stl,application/octet-stream"
+      hidden
+    />
+    <noscript
+      ><div class="no-script">
+        Pal Haven requires JavaScript to load worlds. Use Chrome or the Android
+        app.
+      </div></noscript
+    >
+  </body>
+</html>

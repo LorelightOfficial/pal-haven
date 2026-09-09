@@ -1,0 +1,66 @@
+plugins { id 'com.android.application' }
+
+def signingPath = System.getenv('ANDROID_KEYSTORE_PATH')
+def signingConfigured = signingPath && System.getenv('ANDROID_KEYSTORE_PASSWORD') && System.getenv('ANDROID_KEY_ALIAS') && System.getenv('ANDROID_KEY_PASSWORD')
+
+android {
+    namespace 'app.palhaven.sandbox'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+
+    defaultConfig {
+        applicationId 'app.palhaven.sandbox'
+        minSdk 26
+        targetSdk 35
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+        versionName '0.1.0'
+        manifestPlaceholders = [appLabel: 'Pal Haven']
+    }
+    // One ARM64-v8a APK output. WebView supplies the device-native renderer.
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'arm64-v8a'
+            universalApk false
+        }
+    }
+    buildFeatures { buildConfig true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    // The same complete, offline web code is used by the APK and browser preview.
+    sourceSets { main { assets.srcDirs = ['../../web'] } }
+    signingConfigs {
+        if (signingConfigured) {
+            release {
+                storeFile file(signingPath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+            manifestPlaceholders = [appLabel: 'Pal Haven Debug']
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (signingConfigured) signingConfig signingConfigs.release
+        }
+    }
+    lint { abortOnError true }
+}
+// Do not silently emit an unsigned release when release tasks were requested.
+gradle.taskGraph.whenReady { graph ->
+    def wantsRelease = graph.allTasks.any { task -> task.name == 'assembleRelease' }
+    if (wantsRelease && !signingConfigured) {
+        throw new GradleException('Release signing is missing. Configure the four ANDROID_* secrets described in docs/ANDROID-BUILD.md, or build assembleDebug.')
+    }
+}

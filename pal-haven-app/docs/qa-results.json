@@ -1,0 +1,43 @@
+{
+  "release": "0.1.0",
+  "unitTestsPassed": 30,
+  "unitTestsFailed": 0,
+  "webErrors": [],
+  "legacyModel": {
+    "triangles": 48752,
+    "vertices": 30355,
+    "joints": 23,
+    "clips": 16,
+    "primitives": 32,
+    "textures": 3,
+    "imageSizes": [
+      [2048, 2048],
+      [2048, 2048],
+      [2048, 2048]
+    ],
+    "bytes": 8305084
+  },
+  "legacyClipsRendered": 16,
+  "touchMovementTested": true,
+  "touchLookTested": true,
+  "mockedOrientationRequests": [true, false],
+  "packageRoundTrip": {
+    "palExportBytes": 6670328,
+    "palZipReimport": true,
+    "sprintLock": true,
+    "sprintUnlock": true,
+    "worldBytes": 6671375,
+    "restored": {
+      "type": "imported",
+      "pals": 1,
+      "clips": 16,
+      "triangles": 48752,
+      "ground": 0,
+      "glError": 0
+    },
+    "errors": []
+  },
+  "androidBuildExecuted": false,
+  "androidDeviceTested": false,
+  "notes": "Original models, temporary browser profiles and test archives are not part of the source deliverables."
+}

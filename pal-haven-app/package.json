@@ -1,0 +1,17 @@
+{
+  "name": "pal-haven",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline mobile creature-world sandbox with an ARM64 Android APK workflow",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "serve": "node tools/serve.mjs",
+    "start": "node tools/serve.mjs",
+    "check": "node tools/check-source.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "license": "MIT"
+}
