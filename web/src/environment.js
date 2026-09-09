@@ -47,7 +47,9 @@ export function createEnvironment(type = "meadow", width = 80) {
     batch = new Batcher(),
     rng = seeded(type === "courtyard" ? 919 : 107);
   const mats = {
-      grass: material("#a5b880"),
+      /* shadow: false means "receive shadows but never cast them". Flat
+       * ground and water only invite depth acne and eat the caster budget. */
+      grass: material("#a5b880", { shadow: false }),
       wood: material("#b18d64"),
       bark: material("#827151"),
       stone: material("#b7b6a2"),
@@ -56,7 +58,8 @@ export function createEnvironment(type = "meadow", width = 80) {
       dark: material("#344e45"),
       glass: material("#abc8bc"),
       sand: material("#d6c7a7"),
-      water: material("#83b9b6", { roughness: 0.2 }),
+      // water: true routes this record to the Babylon water material.
+      water: material("#83b9b6", { roughness: 0.2, shadow: false, water: true }),
       white: material("#f6efdc"),
       pink: material("#d7a28d"),
       gold: material("#dbc184"),
@@ -251,7 +254,14 @@ export async function importEnvironment(landscape) {
   if (landscape.format === "stl") {
     const g = parseSTL(bytes);
     records = [
-      { geometry: g, material: material("#b3bea5"), model: identity() },
+      /* One merged landscape mesh: receives shadows, never casts. Pushing a
+       * whole imported world through the shadow map every frame is not viable
+       * on a phone, and creatures still cast onto it. */
+      {
+        geometry: g,
+        material: material("#b3bea5", { shadow: false }),
+        model: identity(),
+      },
     ];
   } else {
     model = await loadGLB(bytes, { landscape: true });

@@ -1,4 +1,6 @@
-import { Renderer } from "./renderer.js";
+import { BabylonRenderer } from "./rendering/BabylonRenderer.js";
+import { ModelLibrary } from "./rendering/ModelLibrary.js";
+import { ModelInstance } from "./rendering/ModelInstance.js";
 import { Controls } from "./input.js";
 import {
   createEnvironment,
@@ -6,7 +8,7 @@ import {
   daylight,
 } from "./environment.js";
 import { TrainingBuddy, TRAINING_MANIFEST, TRAINING_CLIPS } from "./buddy.js";
-import { loadGLB, GLBInstance } from "./glb.js";
+import { loadGLB } from "./glb.js";
 import { get } from "./storage.js";
 import { uid, releaseModel } from "./packages.js";
 import {
@@ -100,13 +102,16 @@ function startAction(p, next) {
   p.clip(next.slot, { restart: true });
 }
 class Creature {
-  constructor(data, asset) {
+  constructor(data, asset, scene = null) {
     this.data = data;
     this.manifest = asset.manifest;
     this.asset = asset;
-    this.view = asset.model
-      ? new GLBInstance(asset.model)
-      : new TrainingBuddy();
+    // Babylon owns imported creature meshes now. The built-in training buddy
+    // is procedural geometry, so it keeps being drawn from plain records.
+    this.view =
+      asset.container && scene
+        ? new ModelInstance(asset.container, scene)
+        : new TrainingBuddy();
     this.state = data.health > 0 ? "idle" : "faint";
     this.goal = null;
     this.path = [];
@@ -176,7 +181,8 @@ export class Game {
   constructor(canvas, hooks = {}) {
     this.canvas = canvas;
     this.hooks = hooks;
-    this.renderer = new Renderer(canvas);
+    this.renderer = new BabylonRenderer(canvas);
+    this.models = new ModelLibrary(this.renderer.scene);
     this.controls = new Controls(canvas, {
       onAction: (a) => this.action(a),
       onLook: (x, y) => this.look(x, y),
@@ -213,6 +219,8 @@ export class Game {
   }
   configure(settings) {
     this.settings = settings;
+    // Lighting, shadow and material budgets follow the quality preset.
+    this.renderer.setQuality?.(settings.quality);
     // Render at (or above) the device's own pixel density for a sharp HD image.
     this.renderer.pixelRatio = Math.min(
       Math.max(1, devicePixelRatio || 1),
@@ -225,6 +233,7 @@ export class Game {
     this.environment?.dispose();
     for (const p of this.pals) p.view.release(this.renderer);
     for (const a of this.assets.values()) if (a.model) releaseModel(a.model);
+    this.models.dispose();
     this.renderer.clear();
     this.assets.clear();
     this.pals = [];
@@ -300,6 +309,7 @@ export class Game {
           retaliate: legacyPeaceful ? true : data.retaliate !== false,
         },
         asset,
+        this.renderer.scene,
       );
       p.clip(p.data.health > 0 ? "idle" : "faint");
       this.pals.push(p);
@@ -319,10 +329,16 @@ export class Game {
       throw Error(
         "A creature used by this world is missing from your library.",
       );
-    const model = await loadGLB(await raw.blob.arrayBuffer(), {
+    const buffer = await raw.blob.arrayBuffer();
+    const model = await loadGLB(buffer, {
       maxTextureSize: qualityTexture[this.settings.quality] || 2048,
     });
-    const asset = { ...raw, model };
+    // Babylon parses the same bytes for the meshes it actually draws, while
+    // glb.js stays the source of the clip list, triangle stats and rig info
+    // the lab and HUD read - and it is what validated the file in the first
+    // place, so an unsupported model is still rejected before it loads.
+    const container = await this.models.load(id, buffer);
+    const asset = { ...raw, model, container };
     this.assets.set(id, asset);
     return asset;
   }
@@ -411,7 +427,7 @@ export class Game {
       data.position = pos;
       data.home = pos.slice();
       data.yaw = Math.random() * Math.PI * 2;
-      const p = new Creature(data, asset);
+      const p = new Creature(data, asset, this.renderer.scene);
       p.clip("idle");
       created.push(p);
     }
@@ -1092,7 +1108,13 @@ export class Game {
         ]
       : this.environment.records.slice();
     for (const p of this.pals) {
-      if (this.lab && this.lab.pal !== p) continue;
+      // Babylon keeps meshes between frames, so a pal left out of the records
+      // has to be switched off rather than simply skipped.
+      if (this.lab && this.lab.pal !== p) {
+        p.view.setEnabled?.(false);
+        continue;
+      }
+      p.view.setEnabled?.(true);
       const sink = p.sink || 0,
         pos = [
           p.position[0],
@@ -1140,6 +1162,8 @@ export class Game {
       this.lab ? 11 : (this.world?.environment.time ?? 10.5),
     );
     if (this.lab) lighting.sky = [0.9, 0.925, 0.865];
+    // The pal viewer keeps a flat studio backdrop instead of the world sky.
+    if (this.lab) lighting.studio = true;
     this.renderer.render(records, this.camera, lighting);
   }
 }
