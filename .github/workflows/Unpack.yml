@@ -2,7 +2,7 @@ name: Unpack zip and build
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
     paths:
       - '**.zip'
   workflow_dispatch:
@@ -11,12 +11,11 @@ permissions:
   contents: write
 
 jobs:
-  unpack-and-dispatch:
+  unpack-and-build:
     runs-on: ubuntu-latest
     env:
-      PROTECTED_PATHS: .github .gitignore README.md LICENSE CONTRIBUTING.md CODE_OF_CONDUCT.md SECURITY.md docs
+      PROTECTED_PATHS: .github .gitignore README.md LICENSE NOTICE.md
       ALLOW_WORKFLOWS: ${{ secrets.PAT_TOKEN != '' }}
-      PUBLIC_REPO: LorelightOfficial/Lorelight-Manga-and-Novel-reader
 
     steps:
       - name: Checkout repo
@@ -47,7 +46,7 @@ jobs:
           unzip -q -o "$ZIP" -d /tmp/newtree
           if [ "$(ls -1 /tmp/newtree | wc -l)" = "1" ] && [ -d "/tmp/newtree/$(ls -1 /tmp/newtree)" ]; then
             INNER="/tmp/newtree/$(ls -1 /tmp/newtree)"
-            if [ ! -f "$INNER/settings.gradle.kts" ] && [ ! -f "/tmp/newtree/settings.gradle.kts" ]; then
+            if [ ! -f "$INNER/package.json" ] && [ ! -f "/tmp/newtree/package.json" ]; then
               echo "Flattening wrapper folder $INNER"
               mv "$INNER" /tmp/flat
               rm -rf /tmp/newtree
@@ -62,9 +61,7 @@ jobs:
           cd /tmp/newtree
           LIST=/tmp/credential-files.txt
           : > "$LIST"
-          # Collect matches into a file rather than a heredoc: a heredoc body
-          # has to start at column 0, which is illegal inside this YAML block.
-          for pat in '.env' '.env.*' '*.keystore' '*.jks' '*.keystore.base64' 'keystore.properties' 'signing.properties' 'secrets.properties' 'local.properties' 'google-services.json' '*.p12' '*.pem'; do
+          for pat in '.env' '.env.*' '*.keystore' '*.jks' '*.keystore.base64' 'keystore.properties' 'signing.properties' 'secrets.properties' 'local.properties' '*.p12' '*.pem'; do
             find . -type f -name "$pat" ! -name '.env.example' -print >> "$LIST" 2>/dev/null || true
           done
           sort -u "$LIST" -o "$LIST"
@@ -118,4 +115,14 @@ jobs:
 
           rm -f *.zip
 
-      
+      - name: Commit replaced source
+        if: steps.detect.outputs.has_zip == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Replace source from uploaded zip" || echo "No changes to commit"
+          git push || {
+            echo "::error::Push rejected. If the message mentions the 'workflows' permission, a file under .github/workflows changed; add a PAT_TOKEN secret (PAT with the 'workflow' scope) or apply that file through the GitHub web UI."
+            exit 1
+          }
