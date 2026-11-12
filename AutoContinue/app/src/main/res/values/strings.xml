@@ -1,0 +1,3 @@
+<resources>
+    <string name="service_desc">Watches the ChatGPT app and sends your continue message when a reply finishes.</string>
+</resources>

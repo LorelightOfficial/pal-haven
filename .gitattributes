@@ -1,6 +1,0 @@
-* text=auto
-*.sh text eol=lf
-*.yml text eol=lf
-*.java text eol=lf
-*.glb binary
-*.zip binary
