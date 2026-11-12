@@ -20,81 +20,179 @@ class AutoContinueService : AccessibilityService() {
     private var wasGenerating = false
     private var pending = false
 
-    override fun onServiceConnected() { instance = this }
-    override fun onDestroy() { instance = null; super.onDestroy() }
-    override fun onInterrupt() {}
-
-    override fun onAccessibilityEvent(e: AccessibilityEvent?) {
-        if (!Prefs.enabled(this)) return
-        if (e?.packageName?.toString() != CHATGPT) return
-        handler.removeCallbacks(check)
-        handler.postDelayed(check, 400)
+    // Checks the screen once a second. (Screen events fire constantly while a reply
+    // streams in, so polling is more reliable than reacting to events.)
+    private val poller = object : Runnable {
+        override fun run() {
+            try {
+                if (Prefs.enabled(this@AutoContinueService)) {
+                    evaluate()
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "poll failed", t)
+            }
+            handler.postDelayed(this, 1000L)
+        }
     }
 
-    private val check = Runnable { evaluate() }
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        handler.removeCallbacks(poller)
+        handler.postDelayed(poller, 1000L)
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        instance = null
+        super.onDestroy()
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Not used: see poller above.
+    }
+
+    override fun onInterrupt() {
+    }
+
+    // ---------- core logic ----------
 
     private fun evaluate() {
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != CHATGPT) return
-        if (isGenerating(root)) { wasGenerating = true; return }
+
+        if (isGenerating(root)) {
+            wasGenerating = true
+            return
+        }
         if (wasGenerating && !pending) {
             wasGenerating = false
             pending = true
-            handler.postDelayed({ sendContinue() }, 1500) // let the reply settle
+            handler.postDelayed({ sendContinue() }, 1500L) // let the reply settle
         }
     }
-
-    private fun label(n: AccessibilityNodeInfo) =
-        (n.contentDescription ?: n.text)?.toString() ?: ""
-
-    private fun walk(n: AccessibilityNodeInfo?, f: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
-        if (n == null) return null
-        if (f(n)) return n
-        for (i in 0 until n.childCount) walk(n.getChild(i), f)?.let { return it }
-        return null
-    }
-
-    private fun isGenerating(root: AccessibilityNodeInfo) = walk(root) {
-        val l = label(it)
-        it.isClickable && l.length < 30 && l.contains("stop", true)
-    } != null
 
     private fun sendContinue() {
         pending = false
         val root = rootInActiveWindow ?: return
-        if (root.packageName?.toString() != CHATGPT || isGenerating(root)) return
+        if (root.packageName?.toString() != CHATGPT) return
+        if (isGenerating(root)) return
 
         if (Prefs.sent(this) >= Prefs.max(this)) {
-            Prefs.setEnabled(this, false)   // loop guard
-            Log.i(TAG, "Max continues reached, disabled")
+            Prefs.setEnabled(this, false) // loop guard
+            Log.i(TAG, "Max continues reached, switched off")
             return
         }
 
-        val input = walk(root) { it.className?.toString()?.contains("EditText") == true } ?: return
-        val args = Bundle().apply {
-            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, Prefs.text(this@AutoContinueService))
+        val input = findNode(root) { n -> isTextBox(n) }
+        if (input == null) {
+            Log.w(TAG, "Message box not found")
+            return
         }
+        val args = Bundle()
+        args.putCharSequence(
+            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+            Prefs.text(this)
+        )
         input.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
 
-        handler.postDelayed({
-            val r = rootInActiveWindow ?: return@postDelayed
-            val send = walk(r) { it.isClickable && label(it).contains("send", true) && label(it).length < 30 }
-            if (send != null && send.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                Prefs.setSent(this, Prefs.sent(this) + 1)
-            } else {
-                Log.w(TAG, "Send button not found; run Dump screen")
-            }
-        }, 600)
+        handler.postDelayed({ clickSend() }, 700L) // give the send arrow time to appear
     }
 
-    /** Logs every node so you can see the real labels in logcat (tag AutoContinue). */
-    fun dumpScreen() {
+    private fun clickSend() {
         val root = rootInActiveWindow ?: return
-        fun rec(n: AccessibilityNodeInfo, d: Int) {
-            Log.d(TAG, "  ".repeat(d) + "${n.className} desc='${n.contentDescription}' text='${n.text}' click=${n.isClickable} id=${n.viewIdResourceName}")
-            for (i in 0 until n.childCount) n.getChild(i)?.let { rec(it, d + 1) }
+        if (root.packageName?.toString() != CHATGPT) return
+
+        val send = findNode(root) { n ->
+            val l = labelOf(n)
+            !isTextBox(n) && l.length < 30 && l.contains("send", ignoreCase = true) && clickableFor(n) != null
         }
-        rec(root, 0)
+        val target = if (send != null) clickableFor(send) else null
+        if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            Prefs.setSent(this, Prefs.sent(this) + 1)
+        } else {
+            Log.w(TAG, "Send button not found")
+        }
+    }
+
+    // ---------- helpers ----------
+
+    private fun isGenerating(root: AccessibilityNodeInfo): Boolean {
+        val hit = findNode(root) { n ->
+            val l = labelOf(n)
+            l.length < 30 && l.contains("stop", ignoreCase = true) && clickableFor(n) != null
+        }
+        return hit != null
+    }
+
+    private fun isTextBox(n: AccessibilityNodeInfo): Boolean {
+        val cls = n.className?.toString() ?: ""
+        return cls.contains("EditText")
+    }
+
+    private fun labelOf(n: AccessibilityNodeInfo): String {
+        val d = n.contentDescription?.toString()
+        if (d != null && d.isNotEmpty()) return d
+        return n.text?.toString() ?: ""
+    }
+
+    // The node itself, or the closest clickable parent (up to 4 levels up).
+    private fun clickableFor(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var cur: AccessibilityNodeInfo? = n
+        var depth = 0
+        while (cur != null && depth < 4) {
+            if (cur.isClickable) return cur
+            cur = cur.parent
+            depth++
+        }
+        return null
+    }
+
+    private fun findNode(
+        root: AccessibilityNodeInfo,
+        match: (AccessibilityNodeInfo) -> Boolean
+    ): AccessibilityNodeInfo? {
+        if (match(root)) return root
+        for (i in 0 until root.childCount) {
+            val child = root.getChild(i) ?: continue
+            val hit = findNode(child, match)
+            if (hit != null) return hit
+        }
+        return null
+    }
+
+    // ---------- screen capture for troubleshooting ----------
+
+    /** Waits delayMs, then saves a readable list of what is on screen into Prefs. */
+    fun captureScreen(delayMs: Long) {
+        handler.postDelayed({
+            val sb = StringBuilder()
+            val root = rootInActiveWindow
+            if (root == null) {
+                sb.append("No active window found\n")
+            } else {
+                sb.append("Package: ${root.packageName}\n")
+                dumpNode(root, 0, sb)
+            }
+            val out = sb.toString()
+            Prefs.setDump(this, if (out.length > 30000) out.substring(0, 30000) else out)
+        }, delayMs)
+    }
+
+    private fun dumpNode(n: AccessibilityNodeInfo, depth: Int, sb: StringBuilder) {
+        val desc = n.contentDescription?.toString()
+        val txt = n.text?.toString()
+        val cls = n.className?.toString() ?: ""
+        val interesting = n.isClickable || !desc.isNullOrEmpty() || !txt.isNullOrEmpty() || cls.contains("EditText")
+        if (interesting) {
+            val shortTxt = txt?.take(60)
+            sb.append("  ".repeat(depth))
+            sb.append("$cls desc='$desc' text='$shortTxt' click=${n.isClickable}\n")
+        }
+        for (i in 0 until n.childCount) {
+            val child = n.getChild(i) ?: continue
+            dumpNode(child, depth + 1, sb)
+        }
     }
 }

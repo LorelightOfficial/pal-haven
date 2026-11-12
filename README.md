@@ -7,27 +7,31 @@ keep going without you tapping "continue".
 ## How it works
 
 AutoContinue is an Android **AccessibilityService** limited to the ChatGPT app
-(`com.openai.chatgpt`).
+(`com.openai.chatgpt`). Once a second it looks at the screen:
 
 1. While a clickable "Stop" button is on screen, ChatGPT is generating.
 2. When that button disappears, wait ~1.5 s for the reply to settle.
-3. Set the text box to your message and tap the "Send" button.
+3. Set the message box to your text and tap the "Send" button.
 4. Repeat until the max count is reached, then switch itself off.
 
-## Setup
+## Install
 
-1. Download the APK from the latest **Actions → Build APK** run (artifact
-   `AutoContinue-debug-apk`), or build it yourself in Android Studio.
-2. Install it (allow installs from unknown sources).
-3. Open AutoContinue → **Enable accessibility service** → turn on "Auto Continue".
-4. Set your message and max continues, flip the switch on, then open ChatGPT.
+1. Download the APK from the latest **Actions -> Build APK** run (artifact
+   `AutoContinue-debug-apk`; it is a zip, unzip it first) and install it.
+2. Open AutoContinue -> **1. Enable accessibility service** -> turn on "Auto Continue".
+3. **Android 13+ only:** if the switch is greyed out ("restricted setting"), go to
+   Settings -> Apps -> Auto Continue -> three-dot menu (top right) -> **Allow restricted
+   settings**, then try step 2 again.
+4. Back in the app, set your message and max continues, flip the switch on, then open ChatGPT.
 
 ## Troubleshooting
 
-If nothing happens, the button labels may differ from what the app expects.
-Open ChatGPT, tap **Dump ChatGPT screen to logcat**, read the output
-(`adb logcat -s AutoContinue`), and adjust the label matching in
-`AutoContinueService.kt` (`isGenerating` and `sendContinue`).
+If nothing happens, the button labels may differ from what the app expects:
+
+1. Tap **2. Capture ChatGPT screen (5 s)**, then switch to ChatGPT with a reply on screen.
+2. Return to AutoContinue and tap **3. Show and copy last capture**.
+3. Paste the result where it can be read and adjust the matching in
+   `AutoContinueService.kt` (`isGenerating` looks for "stop", `clickSend` looks for "send").
 
 ## Roadmap
 
